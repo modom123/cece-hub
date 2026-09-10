@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>cecethepiece — Business Hub</title>
+<title>cecepieceshub — Business Hub</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
 <!--
   ────────────────────────────────────────────────────────────────
-  FILE: index.html  (cecethepiece Business Hub)
-  LAST UPDATED: 2026-09-10_1918 UTC
+  FILE: index.html  (cecepieceshub — Business Hub)
+  LAST UPDATED: 2026-09-10_1947 UTC
   CHANGE: 2026-09-10_1839 — Added Supabase Auth login gate (email +
           password). The hub requires a signed-in team account before
           the dashboard loads. Reached from the website's Team Login.
@@ -21,6 +21,10 @@
           2026-09-10_1941 — Accept a session handed off from the website's
           Hub Login (URL fragment): the hub adopts it, strips the fragment,
           and loads signed in, so the team logs in on Cece's own site.
+          2026-09-10_1947 — Rebranded the visible hub name from
+          "cecethepiece — Business Hub" to "cecepieceshub" (title, logo
+          marks, sidebar). Left #cecethepiece hashtags, hello@cecethepiece
+          .com email, and marketing-copy signatures unchanged.
   ────────────────────────────────────────────────────────────────
 -->
 
@@ -430,7 +434,7 @@ tr:hover td{background:var(--bg)}
 
 <!-- LOADING SCREEN -->
 <div id="loadingScreen">
-  <div class="loading-logo">cece<span>thepiece</span></div>
+  <div class="loading-logo">cece<span>pieceshub</span></div>
   <div class="loading-bar"><div class="loading-bar-fill"></div></div>
   <div class="loading-sub">Connecting to your team database...</div>
 </div>
@@ -438,7 +442,7 @@ tr:hover td{background:var(--bg)}
 <!-- LOGIN SCREEN (Supabase Auth) -->
 <div id="authScreen">
   <form class="auth-card" id="authForm" autocomplete="on">
-    <div class="auth-logo">cece<span>thepiece</span></div>
+    <div class="auth-logo">cece<span>pieceshub</span></div>
     <div class="auth-sub">Business Hub — Team Sign In</div>
     <div class="auth-err" id="authErr"></div>
     <label class="auth-label" for="authEmail">Email</label>
@@ -460,7 +464,7 @@ tr:hover td{background:var(--bg)}
 <!-- SIDEBAR -->
 <aside class="sidebar">
   <div class="sb-logo">
-    <div class="logo-mark">cece<span>thepiece</span></div>
+    <div class="logo-mark">cece<span>pieceshub</span></div>
     <div class="logo-sub">Business Hub</div>
     <div class="sync-indicator" id="syncIndicator" style="display:none">
       <div class="sync-dot"></div> Live — synced across team
@@ -501,7 +505,7 @@ tr:hover td{background:var(--bg)}
   <div class="sb-foot">
     <div class="sb-profile">
       <div class="sb-av" id="sbAvatar">C</div>
-      <div style="min-width:0;flex:1"><div class="sb-name" id="sbName">Cece</div><div class="sb-role" id="sbRole">cecethepiece</div></div>
+      <div style="min-width:0;flex:1"><div class="sb-name" id="sbName">Cece</div><div class="sb-role" id="sbRole">cecepieceshub</div></div>
       <button onclick="authSignOut()" title="Sign out" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:1rem;padding:4px 6px;border-radius:6px" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='none'">⏻</button>
     </div>
   </div>
@@ -1417,7 +1421,7 @@ tr:hover td{background:var(--bg)}
       <!-- ── LEFT SIDEBAR ── -->
       <div class="cp-sidebar">
         <div class="cp-sb-head">
-          <div class="cp-sb-brand">cece<span>thepiece</span></div>
+          <div class="cp-sb-brand">cece<span>pieceshub</span></div>
           <div class="cp-sb-tagline">IEBC Consultant Team · Operations Hub</div>
 
           <!-- Package banner -->
