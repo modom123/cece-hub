@@ -7,6 +7,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
 <!--
+  ────────────────────────────────────────────────────────────────
+  FILE: index.html  (cecethepiece Business Hub)
+  LAST UPDATED: 2026-09-10_1839 UTC
+  CHANGE: Added Supabase Auth login gate (email + password). The hub
+          now requires a signed-in team account before the dashboard
+          loads. Reached from the public website's "Team Login" link.
+  ────────────────────────────────────────────────────────────────
+-->
+
+<!--
 ╔══════════════════════════════════════════════════════════════╗
 ║           SUPABASE SETUP — DO THIS ONCE (5 minutes)         ║
 ╠══════════════════════════════════════════════════════════════╣
@@ -70,6 +80,23 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .loading-bar-fill{height:100%;background:var(--amber);border-radius:2px;animation:loadfill 1.8s ease-out forwards}
 @keyframes loadfill{from{width:0}to{width:100%}}
 .loading-sub{font-size:.72rem;color:var(--muted)}
+
+/* AUTH / LOGIN SCREEN */
+#authScreen{position:fixed;inset:0;background:var(--bg);z-index:1000;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+#authScreen.show{display:flex}
+.auth-card{background:var(--white);border:1px solid var(--border);border-radius:16px;width:min(400px,100%);padding:34px 30px;box-shadow:0 20px 60px rgba(0,0,0,.10)}
+.auth-logo{font-family:'Playfair Display',serif;font-size:1.7rem;color:var(--ink);text-align:center}
+.auth-logo span{color:var(--amber)}
+.auth-sub{font-size:.72rem;color:var(--muted);text-align:center;margin:6px 0 24px}
+.auth-label{font-size:.68rem;font-weight:600;color:var(--ink2);display:block;margin-bottom:5px}
+.auth-input{width:100%;border:1.5px solid var(--border);border-radius:9px;padding:11px 13px;font-size:.85rem;font-family:inherit;margin-bottom:15px;transition:border-color .18s;background:var(--white);color:var(--ink)}
+.auth-input:focus{outline:none;border-color:var(--amber)}
+.auth-btn{width:100%;border:none;border-radius:9px;padding:12px;font-size:.85rem;font-weight:700;cursor:pointer;background:var(--amber);color:#fff;transition:filter .18s}
+.auth-btn:hover{filter:brightness(1.05)}
+.auth-btn:disabled{opacity:.6;cursor:default}
+.auth-err{background:#fdeceb;color:#c0392b;border:1px solid #f5c6c2;border-radius:8px;padding:9px 12px;font-size:.72rem;margin-bottom:15px;display:none}
+.auth-err.show{display:block}
+.auth-foot{font-size:.66rem;color:var(--muted);text-align:center;margin-top:18px;line-height:1.6}
 
 /* CONFIG BANNER */
 #configBanner{display:none;background:linear-gradient(135deg,#1a1714,#2d2a26);color:#fff;padding:14px 20px;font-size:.78rem;line-height:1.8;border-bottom:2px solid var(--amber)}
@@ -400,6 +427,21 @@ tr:hover td{background:var(--bg)}
   <div class="loading-sub">Connecting to your team database...</div>
 </div>
 
+<!-- LOGIN SCREEN (Supabase Auth) -->
+<div id="authScreen">
+  <form class="auth-card" id="authForm" autocomplete="on">
+    <div class="auth-logo">cece<span>thepiece</span></div>
+    <div class="auth-sub">Business Hub — Team Sign In</div>
+    <div class="auth-err" id="authErr"></div>
+    <label class="auth-label" for="authEmail">Email</label>
+    <input class="auth-input" id="authEmail" type="email" autocomplete="username" placeholder="you@example.com" required>
+    <label class="auth-label" for="authPassword">Password</label>
+    <input class="auth-input" id="authPassword" type="password" autocomplete="current-password" placeholder="••••••••" required>
+    <button class="auth-btn" id="authBtn" type="submit">Sign In</button>
+    <div class="auth-foot">Team access only. Ask your IEBC consultant to set up your account.</div>
+  </form>
+</div>
+
 <!-- CONFIG BANNER (shown if keys not set) -->
 <div id="configBanner">
   ⚡ <strong>Almost there!</strong> &nbsp;Open this file in a text editor and replace <code>https://tssicoxzxcfijdlvtpqm.supabase.co</code> and <code>YOUR_SUPABASE_KEY</code> near the top of the &lt;script&gt; section with your actual Supabase project values. Then run the SQL at the bottom of this file in your Supabase SQL Editor. &nbsp;<a href="https://supabase.com/dashboard" target="_blank" style="color:var(--amber-mid);font-weight:700">Open Supabase →</a>
@@ -450,8 +492,9 @@ tr:hover td{background:var(--bg)}
   </div>
   <div class="sb-foot">
     <div class="sb-profile">
-      <div class="sb-av">C</div>
-      <div><div class="sb-name">Cece</div><div class="sb-role">cecethepiece</div></div>
+      <div class="sb-av" id="sbAvatar">C</div>
+      <div style="min-width:0;flex:1"><div class="sb-name" id="sbName">Cece</div><div class="sb-role" id="sbRole">cecethepiece</div></div>
+      <button onclick="authSignOut()" title="Sign out" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:1rem;padding:4px 6px;border-radius:6px" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='none'">⏻</button>
     </div>
   </div>
 </aside>
@@ -1772,10 +1815,96 @@ tr:hover td{background:var(--bg)}
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  PASTE CECE'S SUPABASE CREDENTIALS HERE (from Supabase dashboard)  ║
 // ╚══════════════════════════════════════════════════════════════╝
-const SUPABASE_URL = '';   // e.g. https://abcxyz.supabase.co
-const SUPABASE_KEY = '';   // anon/public key from Supabase → Settings → API
+const SUPABASE_URL = 'https://tssicoxzxcfijdlvtpqm.supabase.co';   // Cece's project (same one the public website uses)
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzc2ljb3h6eGNmaWpkbHZ0cHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MzM3NDAsImV4cCI6MjA4OTAwOTc0MH0.g7OlsyUsSv05u7ikmjyt2sOT8aWFGNPwKU65KcATlWU';   // anon/public key — safe to expose; auth is enforced by login below
 
 const CONFIGURED = !!(SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('placeholder'));
+
+// ── AUTH SESSION (Supabase Auth via REST — no SDK needed) ──
+// A signed-in team account is required before the hub loads. The
+// user's access token (not the anon key) authorizes every data call.
+const AUTH_STORE = 'cecehub.session';
+let session = null;   // { access_token, refresh_token, expires_at, user }
+
+function loadSession() {
+  try { session = JSON.parse(localStorage.getItem(AUTH_STORE) || 'null'); }
+  catch(e) { session = null; }
+  return session;
+}
+function saveSession(s) {
+  session = s;
+  try { s ? localStorage.setItem(AUTH_STORE, JSON.stringify(s)) : localStorage.removeItem(AUTH_STORE); }
+  catch(e) {}
+}
+// Bearer token used for data requests: the logged-in user's token, or anon as fallback.
+function authToken() { return (session && session.access_token) || SUPABASE_KEY; }
+
+async function authSignIn(email, password) {
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: (email||'').trim(), password: password||'' })
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error_description || data.msg || data.error || 'Sign-in failed');
+  saveSession(data);
+  return data;
+}
+async function authRefresh() {
+  if (!session || !session.refresh_token) return null;
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: session.refresh_token })
+  });
+  if (!r.ok) { saveSession(null); return null; }
+  const data = await r.json();
+  saveSession(data);
+  return data;
+}
+// Returns true if we have a usable (or refreshed) session.
+async function authRestore() {
+  loadSession();
+  if (!session || !session.access_token) return false;
+  const nowSec = Math.floor(Date.now() / 1000);
+  // Refresh a little early (60s buffer) if the token is expiring.
+  if (session.expires_at && session.expires_at - 60 <= nowSec) {
+    return !!(await authRefresh());
+  }
+  // Validate the token against the auth server; refresh once if rejected.
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${session.access_token}` }
+    });
+    if (r.ok) return true;
+    return !!(await authRefresh());
+  } catch(e) {
+    // Offline: keep the stored session so the hub still opens.
+    return true;
+  }
+}
+let authKeepAlive = null;
+// Refresh the access token before it expires so background polling keeps working.
+function startAuthKeepAlive() {
+  if (authKeepAlive) clearInterval(authKeepAlive);
+  authKeepAlive = setInterval(async () => {
+    if (!session || !session.expires_at) return;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (session.expires_at - 300 <= nowSec) await authRefresh();
+  }, 60 * 1000);
+}
+async function authSignOut() {
+  try {
+    if (session && session.access_token) {
+      await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${session.access_token}` }
+      });
+    }
+  } catch(e) {}
+  saveSession(null);
+  location.reload();
+}
 
 let pieces = [], contacts = [], keys = {};
 let crmFilter = 'all', currentPieceId = null, imgData = null;
@@ -1798,7 +1927,7 @@ const sb = {
     if (options.eq)      Object.entries(options.eq).forEach(([k,v]) => params.push(`${k}=eq.${encodeURIComponent(v)}`));
     if (params.length)   url += '?' + params.join('&');
     const r = await fetch(url, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' }
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}`, 'Content-Type': 'application/json' }
     });
     if (!r.ok) throw new Error(await r.text());
     return r.json();
@@ -1806,7 +1935,7 @@ const sb = {
   async insert(table, data) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: 'POST',
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
       body: JSON.stringify(data)
     });
     if (!r.ok) throw new Error(await r.text());
@@ -1815,7 +1944,7 @@ const sb = {
   async update(table, id, data) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
       method: 'PATCH',
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
       body: JSON.stringify(data)
     });
     if (!r.ok) throw new Error(await r.text());
@@ -1824,14 +1953,14 @@ const sb = {
   async delete(table, id) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
       method: 'DELETE',
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}` }
     });
     if (!r.ok) throw new Error(await r.text());
   },
   async upsert(table, data, onConflict = 'id') {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=${onConflict}`, {
       method: 'POST',
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' },
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' },
       body: JSON.stringify(data)
     });
     if (!r.ok) throw new Error(await r.text());
@@ -1926,6 +2055,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   renderEmailTemplates();
 
+  // Wire the login form once.
+  document.getElementById('authForm').addEventListener('submit', onAuthSubmit);
+
   // Check config
   if (!CONFIGURED) {
     document.getElementById('configBanner').classList.add('show');
@@ -1933,18 +2065,66 @@ window.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Load data
+  // Auth gate: only load the hub if a team account is signed in.
+  const signedIn = await authRestore();
+  if (!signedIn) { showLogin(); return; }
+
+  await startHub();
+});
+
+// Show the login screen (hide the app + loading screen behind it).
+function showLogin() {
+  document.getElementById('loadingScreen').classList.add('hidden');
+  document.getElementById('authScreen').classList.add('show');
+  setTimeout(() => document.getElementById('authEmail')?.focus(), 60);
+}
+
+// Handle the sign-in form submission.
+async function onAuthSubmit(e) {
+  e.preventDefault();
+  const btn = document.getElementById('authBtn');
+  const err = document.getElementById('authErr');
+  err.classList.remove('show');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try {
+    await authSignIn(document.getElementById('authEmail').value, document.getElementById('authPassword').value);
+    document.getElementById('authPassword').value = '';
+    document.getElementById('authScreen').classList.remove('show');
+    document.getElementById('loadingScreen').classList.remove('hidden');
+    await startHub();
+  } catch(ex) {
+    err.textContent = ex.message || 'Sign-in failed. Check your email and password.';
+    err.classList.add('show');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Sign In';
+  }
+}
+
+// Load data and start the hub (runs once a user is authenticated).
+async function startHub() {
+  // Reflect the signed-in user in the sidebar.
+  const email = session?.user?.email || '';
+  if (email) {
+    const name = document.getElementById('sbName');
+    const role = document.getElementById('sbRole');
+    const av = document.getElementById('sbAvatar');
+    if (role) role.textContent = email;
+    if (av) av.textContent = (email[0] || 'C').toUpperCase();
+    if (name && session?.user?.user_metadata?.name) name.textContent = session.user.user_metadata.name;
+  }
+
   await loadAll();
   startPolling();
   startOrderPolling();
+  startAuthKeepAlive();
   loadSavedKeys();
 
   // Init social — non-blocking, won't stop app if tables missing
-  if (CONFIGURED) initSocial().catch(() => {});
+  initSocial().catch(() => {});
 
   // Hide loading screen — always runs
   setTimeout(() => document.getElementById('loadingScreen').classList.add('hidden'), 1200);
-});
+}
 
 // ── NAVIGATION ──
 const pmeta = {
@@ -4376,6 +4556,65 @@ function findCol(headers, options) { for(const opt of options){const idx=headers
 function sourceLabel(source) { return {csv:'CSV import',phone:'Phone contacts',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',website:'Website',manual:'Manual paste',paste:'Paste import'}[source]||source; }
 
 </script>
+
+<!--
+╔══════════════════════════════════════════════════════════════════╗
+║        == ENABLE TEAM LOGIN (Supabase Auth) — DO ONCE ==         ║
+╠══════════════════════════════════════════════════════════════════╣
+║                                                                  ║
+║  The hub now requires a signed-in team account. Set that up:     ║
+║                                                                  ║
+║  STEP A — Turn on email/password sign-in                         ║
+║    Supabase dashboard → Authentication → Providers → Email       ║
+║    • Enable "Email"                                              ║
+║    • Turn OFF "Confirm email" (so you can create accounts        ║
+║      directly without an inbox round-trip)                       ║
+║                                                                  ║
+║  STEP B — Create an account for each team member                 ║
+║    Authentication → Users → "Add user" → enter their email +     ║
+║    a password → Create. Give each person their own login.        ║
+║    (To reset a password later, use "Send recovery" or edit the   ║
+║     user here.)                                                  ║
+║                                                                  ║
+║  STEP C — (Recommended) Lock the sensitive tables to logged-in   ║
+║    team members only. Run the SQL marked "SECURITY HARDENING"    ║
+║    below. This protects your saved API keys and customer         ║
+║    contacts. The public website is unaffected — it only reads    ║
+║    pieces and submits orders/rentals, which stay public.         ║
+║                                                                  ║
+║  That's it. Team members reach the hub from the website's        ║
+║  "Team Login" link (or go straight to amazinhelp.com) and        ║
+║  sign in with the account you created.                           ║
+╚══════════════════════════════════════════════════════════════════╝
+
+-- ══ SECURITY HARDENING (run in Supabase → SQL Editor after STEP A/B) ══
+-- Restricts the tables that hold API keys and customer data to
+-- authenticated (logged-in) users only. Safe for the public website:
+-- it never touches settings / contacts / post_queue.
+-- (Run this AFTER the table-creation SQL further below has been run once.)
+
+-- API keys (Stripe, Instagram, etc.) — team only
+drop policy if exists "Public access" on settings;
+create policy "settings team only"  on settings   for all
+  to authenticated using (true) with check (true);
+
+-- Customer & lead contacts (names, emails, phones) — team only
+drop policy if exists "Public access" on contacts;
+create policy "contacts team only"  on contacts   for all
+  to authenticated using (true) with check (true);
+
+-- Scheduled social posts — team only
+drop policy if exists "Public access" on post_queue;
+create policy "post_queue team only" on post_queue for all
+  to authenticated using (true) with check (true);
+
+-- NOTE: pieces, orders and rental_bookings intentionally stay public —
+-- the public website reads pieces and lets visitors submit orders and
+-- rental requests without logging in. Do not lock those down.
+-- ═════════════════════════════════════════════════════════════════════
+
+
+-->
 
 <!--
 ╔══════════════════════════════════════════════════════════════════╗
