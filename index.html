@@ -9,10 +9,15 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecethepiece Business Hub)
-  LAST UPDATED: 2026-09-10_1839 UTC
-  CHANGE: Added Supabase Auth login gate (email + password). The hub
-          now requires a signed-in team account before the dashboard
-          loads. Reached from the public website's "Team Login" link.
+  LAST UPDATED: 2026-09-10_1918 UTC
+  CHANGE: 2026-09-10_1839 — Added Supabase Auth login gate (email +
+          password). The hub requires a signed-in team account before
+          the dashboard loads. Reached from the website's Team Login.
+          2026-09-10_1918 — Renamed the "Decorative Urn" category to
+          "Memorial Piece". Added per-piece Variations: upload alternate
+          photos or auto-create colorway variations, saved with the piece
+          and shown as a drag/click gallery on the website. New pieces
+          need a "variations" jsonb column (see SQL at end of file).
   ────────────────────────────────────────────────────────────────
 -->
 
@@ -586,7 +591,7 @@ tr:hover td{background:var(--bg)}
               </div>
               <div class="form-row">
                 <div class="fg"><label class="flabel">Title *</label><input class="finput" id="f-title" placeholder='e.g. "Golden Resin Flow"'></div>
-                <div class="fg"><label class="flabel">Medium *</label><select class="fsel" id="f-type"><option value="">Select...</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Decorative Urn</option><option>Photography</option><option>Mixed Media</option></select></div>
+                <div class="fg"><label class="flabel">Medium *</label><select class="fsel" id="f-type"><option value="">Select...</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Photography</option><option>Mixed Media</option></select></div>
                 <div class="fg"><label class="flabel">Price (USD) *</label><input class="finput" id="f-price" placeholder="e.g. 450" oninput="updateCaption()"></div>
                 <div class="fg"><label class="flabel">Dimensions</label><input class="finput" id="f-dims" placeholder='e.g. 12" × 16"'></div>
                 <div class="fg full"><label class="flabel">Materials</label><input class="finput" id="f-mats" placeholder="e.g. Epoxy resin, alcohol inks, gold leaf" oninput="updateCaption()"></div>
@@ -611,6 +616,17 @@ tr:hover td{background:var(--bg)}
                     </div>
                   </div>
                 </div>
+              </div>
+              <div class="fg full" style="border:1.5px dashed var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 14px">
+                <div style="margin-bottom:9px">
+                  <div style="font-size:.8rem;font-weight:700">🎨 Variations <span style="font-weight:400;color:var(--muted);font-size:.68rem">— optional, show clients other looks</span></div>
+                  <div style="font-size:.66rem;color:var(--muted);margin-top:2px">The main photo is the piece. Add or auto-create alternate looks — buyers drag / click through them on your website.</div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                  <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">➕ Add photos<input type="file" accept="image/*" multiple style="display:none" onchange="addVariationFiles(event,'pub')"></label>
+                  <button type="button" class="btn btn-ghost btn-sm" onclick="autoGenVariations('pub')">✨ Auto-create color variations</button>
+                </div>
+                <div id="pub-var-strip" style="display:flex;gap:8px;flex-wrap:wrap"></div>
               </div>
               <button class="btn btn-amber btn-full" style="padding:14px" onclick="runPublish()">🚀 &nbsp;PUBLISH EVERYWHERE — One Click</button>
               <div class="auto-steps" id="mainAutoSteps" style="display:none">
@@ -995,7 +1011,7 @@ tr:hover td{background:var(--bg)}
                     <option value="piece_photo">🖼 Finished Piece Photo</option>
                     <option value="carousel">📎 Before/During/After Carousel</option>
                     <option value="bts">🎥 Behind the Scenes</option>
-                    <option value="urn">🕊️ Memorial Urn Feature</option>
+                    <option value="urn">🕊️ Memorial Piece Feature</option>
                     <option value="sale">💰 New Piece For Sale</option>
                     <option value="story">📱 Story / Poll</option>
                   </select>
@@ -1097,7 +1113,7 @@ tr:hover td{background:var(--bg)}
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px">
           <div style="padding:14px;border:1.5px solid var(--border);border-radius:10px;border-top:3px solid #e4405f;background:var(--white)"><div style="font-size:1.1rem;margin-bottom:7px">📸</div><div style="font-size:.84rem;font-weight:700;margin-bottom:4px">Instagram</div><div style="font-size:.7rem;color:var(--muted);line-height:1.7">4–5x/week. Reels of your pour process get 3× reach. Post carousels showing before/during/after. Use Stories for polls: "which piece next?"</div><div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap"><span style="font-size:.6rem;background:var(--coral-light);color:var(--coral);padding:2px 7px;border-radius:4px;font-weight:600">Reels</span><span style="font-size:.6rem;background:var(--amber-light);color:var(--amber);padding:2px 7px;border-radius:4px;font-weight:600">Carousels</span></div></div>
           <div style="padding:14px;border:1.5px solid var(--border);border-radius:10px;border-top:3px solid #010101;background:var(--white)"><div style="font-size:1.1rem;margin-bottom:7px">🎵</div><div style="font-size:.84rem;font-weight:700;margin-bottom:4px">TikTok</div><div style="font-size:.7rem;color:var(--muted);line-height:1.7">Resin pours are VIRAL on TikTok. Film from above, add trending sound. Post 1x daily, always use #resintok. TikTok notifies you to post manually.</div><div style="margin-top:10px"><span style="font-size:.6rem;background:var(--violet-light);color:var(--violet);padding:2px 7px;border-radius:4px;font-weight:600">Process videos</span></div></div>
-          <div style="padding:14px;border:1.5px solid var(--border);border-radius:10px;border-top:3px solid #1877f2;background:var(--white)"><div style="font-size:1.1rem;margin-bottom:7px">👥</div><div style="font-size:.84rem;font-weight:700;margin-bottom:4px">Facebook</div><div style="font-size:.7rem;color:var(--muted);line-height:1.7">Join local art & home decor groups. Facebook Marketplace is perfect for urns. Post in funeral director groups — massive untapped audience.</div></div>
+          <div style="padding:14px;border:1.5px solid var(--border);border-radius:10px;border-top:3px solid #1877f2;background:var(--white)"><div style="font-size:1.1rem;margin-bottom:7px">👥</div><div style="font-size:.84rem;font-weight:700;margin-bottom:4px">Facebook</div><div style="font-size:.7rem;color:var(--muted);line-height:1.7">Join local art & home decor groups. Facebook Marketplace is perfect for memorial pieces. Post in funeral director groups — massive untapped audience.</div></div>
         </div>
         <div style="padding:14px 16px;background:var(--amber-light);border-radius:10px;border:1px solid rgba(212,130,10,.2)"><strong style="font-size:.78rem">🔥 Your #1 move:</strong><span style="font-size:.74rem;color:var(--ink2)"> Film the resin pour from above, slow it down, add a satisfying sound. Post to TikTok + Instagram Reels same day.</span></div>
       </div><!-- /soc-strategy -->
@@ -1796,6 +1812,15 @@ tr:hover td{background:var(--bg)}
         <div style="font-size:1.4rem;font-weight:700;color:var(--amber);margin-bottom:14px" id="pm-price"></div>
         <div style="font-size:.74rem;color:var(--muted);line-height:1.8;margin-bottom:16px" id="pm-desc"></div>
         <div style="font-size:.68rem;color:var(--muted);margin-bottom:16px" id="pm-dims"></div>
+        <div style="border-top:1px solid var(--border);margin-bottom:14px;padding-top:12px">
+          <div style="font-size:.72rem;font-weight:700;margin-bottom:7px">🎨 Variations <span style="font-weight:400;color:var(--muted);font-size:.64rem">— shown on the website</span></div>
+          <div id="pm-var-strip" style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px"></div>
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">➕ Add<input type="file" accept="image/*" multiple style="display:none" onchange="addVariationFiles(event,'pm')"></label>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="autoGenVariations('pm')">✨ Auto-color</button>
+            <button type="button" class="btn btn-amber btn-sm" onclick="savePieceVariations()">💾 Save</button>
+          </div>
+        </div>
         <div style="display:flex;flex-direction:column;gap:8px">
           <button class="btn btn-green btn-full" onclick="createPayLinkForPiece()">💳 Create Payment Link</button>
           <button class="btn btn-ghost btn-full" id="pm-status-btn" onclick="togglePieceStatus()">Mark as Sold</button>
@@ -2248,6 +2273,7 @@ async function runPublish() {
   const forRent = document.getElementById('f-for-rent').checked;
   const piece = {
     image: imgData, title, type, price,
+    variations: variationsBuf.slice(),
     dimensions: document.getElementById('f-dims').value.trim(),
     materials: document.getElementById('f-mats').value.trim(),
     description: document.getElementById('f-desc').value.trim(),
@@ -2264,12 +2290,20 @@ async function runPublish() {
   };
 
   let dbOk = false;
+  let saved = null;
   try {
-    const [saved] = await sb.insert('pieces', piece);
-    piece.id = saved.id;
-    pieces.unshift(saved);
-    dbOk = true;
-  } catch(e) { console.error('DB save error:', e); }
+    [saved] = await sb.insert('pieces', piece);
+  } catch(e) {
+    // The optional 'variations' column may not be added yet — retry without it
+    // so publishing never breaks. (Add the column via the SQL at the file's end.)
+    console.warn('Insert failed, retrying without variations:', e);
+    const { variations, ...pieceNoVars } = piece;
+    try {
+      [saved] = await sb.insert('pieces', pieceNoVars);
+      if (variations && variations.length) showToast('Piece saved. To store variations, add the "variations" column (see SQL).','t-amber');
+    } catch(e2) { console.error('DB save error:', e2); }
+  }
+  if (saved) { piece.id = saved.id; pieces.unshift(saved); dbOk = true; }
 
   await runStep('as-db', 'Saving to database & website...', dbOk ? '✅ Live on your website now!' : '⚠️ DB error — check Supabase connection', dbOk, 600);
   await runStep('as-shopify', 'Creating Shopify listing...', keys['shopify-key']?'Listing created!':'⚠️ Add Shopify key in Connections', !!keys['shopify-key'], 800);
@@ -2298,6 +2332,7 @@ async function runPublish() {
   }
 
   addActivity(`📸 Published: <strong>${title}</strong> — ${type}${price?' · $'+price:''}`);
+  variationsBuf = []; renderVarStrip('pub');
   refreshDash(); populatePayPieceSel();
   showToast('🎉 "'+title+'" is live and synced to your whole team!','t-success');
 }
@@ -2325,6 +2360,7 @@ function resetPublish() {
   document.getElementById('f-for-sale').checked = true;
   document.getElementById('f-for-rent').checked = false;
   document.getElementById('rental-pricing-fields').style.display = 'none';
+  variationsBuf = []; renderVarStrip('pub');
   document.getElementById('mainAutoSteps').style.display = 'none';
   document.getElementById('publishResults').style.display = 'none';
   document.getElementById('outreachBanner').classList.remove('show');
@@ -2335,6 +2371,104 @@ function resetPublish() {
 }
 
 function openPublishModal() { goPage('publish', document.querySelector('[onclick*=publish]')); }
+
+// ── VARIATIONS (author + auto-generate) ─────────────────────────
+// A piece has one main image plus an optional list of variations, each
+// { image, label }. Buyers drag / click through them on the website.
+let variationsBuf = [];    // buffer for the publish form
+let pmVariationsBuf = [];   // buffer for the piece-edit modal
+
+// Color presets for the auto-generator (canvas re-tint of the main photo).
+// Note: these are algorithmic colorways, not a generative image model. To
+// wire in a true text-to-image AI later, replace autoGenVariations() with a
+// call to a Supabase Edge Function that holds the image-API key server-side.
+const VAR_PRESETS = [
+  { label:'Amber Glow', filter:'hue-rotate(-18deg) saturate(1.3) brightness(1.05)' },
+  { label:'Ocean Teal', filter:'hue-rotate(160deg) saturate(1.15)' },
+  { label:'Rose Blush', filter:'hue-rotate(300deg) saturate(1.12) brightness(1.03)' },
+  { label:'Emerald',    filter:'hue-rotate(95deg) saturate(1.2)' },
+  { label:'Noir',       filter:'grayscale(1) contrast(1.12)' }
+];
+
+// Normalize a piece's stored variations into an array of { image, label }.
+function normVars(p) {
+  let v = p && p.variations;
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch(e) { v = []; } }
+  if (!Array.isArray(v)) return [];
+  return v.map((x,i) => typeof x === 'string'
+    ? { image:x, label:'Variation '+(i+1) }
+    : { image:x.image||x.src||'', label:x.label||('Variation '+(i+1)) }
+  ).filter(x => x.image);
+}
+
+function varBuf(which) { return which === 'pm' ? pmVariationsBuf : variationsBuf; }
+function varStripEl(which) { return document.getElementById(which === 'pm' ? 'pm-var-strip' : 'pub-var-strip'); }
+
+function renderVarStrip(which) {
+  const el = varStripEl(which); if (!el) return;
+  const buf = varBuf(which);
+  el.innerHTML = buf.length ? buf.map((v,i) => `
+    <div style="position:relative;width:56px;height:56px;border-radius:6px;overflow:hidden;border:1px solid var(--border)">
+      <img src="${v.image}" title="${String(v.label||'').replace(/"/g,'&quot;')}" style="width:100%;height:100%;object-fit:cover;display:block">
+      <button type="button" onclick="removeVariation('${which}',${i})" title="Remove" style="position:absolute;top:1px;right:1px;width:16px;height:16px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:.6rem;line-height:1;cursor:pointer;padding:0">✕</button>
+    </div>`).join('') : '<div style="font-size:.66rem;color:var(--muted)">No variations yet.</div>';
+}
+
+function addVariationFiles(e, which) {
+  const files = Array.from(e.target.files || []);
+  const buf = varBuf(which);
+  const imgs = files.filter(f => f.type.startsWith('image/'));
+  let pending = imgs.length;
+  if (!pending) { e.target.value = ''; return; }
+  imgs.forEach(f => {
+    const r = new FileReader();
+    r.onload = ev => compressImage(ev.target.result, 1000, 0.8, c => {
+      buf.push({ image:c, label:'Alternate view' });
+      renderVarStrip(which);
+      if (--pending <= 0) e.target.value = '';
+    });
+    r.readAsDataURL(f);
+  });
+}
+
+function autoGenVariations(which) {
+  const base = which === 'pm'
+    ? (pieces.find(p => p.id === currentPieceId) || {}).image
+    : imgData;
+  if (!base) { showToast('Add the main photo first.','t-error'); return; }
+  const buf = varBuf(which);
+  const img = new Image();
+  img.onload = () => {
+    let made = 0;
+    VAR_PRESETS.forEach(preset => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.filter = preset.filter;
+      ctx.drawImage(img, 0, 0);
+      buf.push({ image: canvas.toDataURL('image/jpeg', 0.8), label: preset.label });
+      made++;
+    });
+    renderVarStrip(which);
+    showToast(`✨ Created ${made} color variations`, 't-success');
+  };
+  img.onerror = () => showToast('Could not read the main image.','t-error');
+  img.src = base;
+}
+
+function removeVariation(which, i) {
+  varBuf(which).splice(i, 1);
+  renderVarStrip(which);
+}
+
+async function savePieceVariations() {
+  const p = pieces.find(x => x.id === currentPieceId); if (!p) return;
+  try {
+    await sb.update('pieces', p.id, { variations: pmVariationsBuf });
+    p.variations = pmVariationsBuf.slice();
+    showToast('🎨 Variations saved — live on your website.','t-success');
+  } catch(e) { showToast('Error saving variations (add the "variations" column — see SQL).','t-error'); }
+}
 
 // ── COLLECTION ──
 function artCardHTML(p) {
@@ -2369,6 +2503,8 @@ function openPieceModal(id) {
   document.getElementById('pm-desc').textContent = p.description||'An original work by Cece. Certificate of authenticity included.';
   document.getElementById('pm-dims').textContent = p.dimensions?'Dimensions: '+p.dimensions:'';
   document.getElementById('pm-status-btn').textContent = p.status==='sold'?'Mark as Available':'Mark as Sold';
+  pmVariationsBuf = normVars(p);
+  renderVarStrip('pm');
   document.getElementById('pieceModal').classList.add('open');
 }
 
@@ -4638,8 +4774,11 @@ create table if not exists pieces (
   description text,
   caption     text,
   date        text,
-  payment_link text
+  payment_link text,
+  variations  jsonb default '[]'::jsonb   -- alternate looks shown as a drag/click gallery on the website
 );
+-- If the pieces table already exists, add the new column with:
+alter table pieces add column if not exists variations jsonb default '[]'::jsonb;
 
 -- ── CONTACTS TABLE ─────────────────────────────────────────────
 create table if not exists contacts (
