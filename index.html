@@ -18,6 +18,9 @@
           photos or auto-create colorway variations, saved with the piece
           and shown as a drag/click gallery on the website. New pieces
           need a "variations" jsonb column (see SQL at end of file).
+          2026-09-10_1941 — Accept a session handed off from the website's
+          Hub Login (URL fragment): the hub adopts it, strips the fragment,
+          and loads signed in, so the team logs in on Cece's own site.
   ────────────────────────────────────────────────────────────────
 -->
 
@@ -1931,6 +1934,20 @@ async function authSignOut() {
   location.reload();
 }
 
+// If the website's Hub Login handed us a session in the URL fragment, adopt it
+// and strip it from the URL so the token isn't left sitting in browser history.
+function consumeHandoffSession() {
+  try {
+    const m = location.hash.match(/hubsess=([^&]+)/);
+    if (m) {
+      const s = JSON.parse(decodeURIComponent(m[1]));
+      if (s && s.access_token) saveSession(s);
+    }
+  } catch(e) { /* ignore malformed hand-off */ }
+  if (location.hash.indexOf('hubsess=') >= 0)
+    history.replaceState(null, '', location.pathname + location.search);
+}
+
 let pieces = [], contacts = [], keys = {};
 let crmFilter = 'all', currentPieceId = null, imgData = null;
 let pollInterval = null;
@@ -2091,6 +2108,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Auth gate: only load the hub if a team account is signed in.
+  consumeHandoffSession();
   const signedIn = await authRestore();
   if (!signedIn) { showLogin(); return; }
 
