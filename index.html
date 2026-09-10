@@ -9,7 +9,7 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-10_1947 UTC
+  LAST UPDATED: 2026-09-10_2000 UTC
   CHANGE: 2026-09-10_1839 — Added Supabase Auth login gate (email +
           password). The hub requires a signed-in team account before
           the dashboard loads. Reached from the website's Team Login.
@@ -25,6 +25,12 @@
           "cecethepiece — Business Hub" to "cecepieceshub" (title, logo
           marks, sidebar). Left #cecethepiece hashtags, hello@cecethepiece
           .com email, and marketing-copy signatures unchanged.
+          2026-09-10_2000 — Added "My AI Agents": 5 working agents on the
+          Anthropic key (Curator, Sales & Leads, Marketing & Social,
+          Operations & Finance, Rentals Concierge), each grounded in live
+          business data. The Curator also powers a "Curate with AI" button
+          on Publish that reads the photo (vision) and fills title,
+          description, materials & caption.
   ────────────────────────────────────────────────────────────────
 -->
 
@@ -496,6 +502,11 @@ tr:hover td{background:var(--bg)}
   </div>
   <hr class="sb-divider">
   <div class="sb-section">
+    <div class="sb-label" style="color:var(--amber);font-weight:700;letter-spacing:.06em">AI AGENTS</div>
+    <button class="nav-btn" id="nav-agents" onclick="goPage('agents',this)" style="background:var(--amber-light);color:var(--amber);font-weight:600"><span class="ico">🤖</span>My AI Agents</button>
+  </div>
+  <hr class="sb-divider">
+  <div class="sb-section">
     <div class="sb-label" style="color:var(--teal);font-weight:700;letter-spacing:.06em">IEBC TEAM</div>
     <button class="nav-btn" id="nav-consultants" onclick="goPage('consultants',this)" style="position:relative;background:var(--teal-light);color:var(--teal);font-weight:600">
       <span class="ico">🤖</span>My Consultants
@@ -596,6 +607,8 @@ tr:hover td{background:var(--bg)}
                 <img class="up-preview" id="mainPreview" alt="">
                 <div id="mainUpPrompt"><div class="up-icon">🖼</div><div class="up-text"><strong>Drop your photo here</strong> or tap to browse<br><span style="font-size:.62rem;opacity:.6">JPG · PNG · HEIC · Auto-compressed for fast loading on your website</span></div></div>
               </div>
+              <button type="button" class="btn btn-full" id="curateBtn" onclick="curatePiece()" style="margin:10px 0 4px;background:linear-gradient(135deg,#8b3fff,#b06bff);color:#fff;font-weight:700">🎨 &nbsp;Curate with AI — write the title, description &amp; caption from the photo</button>
+              <div style="font-size:.62rem;color:var(--muted);margin-bottom:12px;text-align:center">The Curator agent looks at your photo and fills the fields below. Review &amp; tweak before publishing.</div>
               <div class="form-row">
                 <div class="fg"><label class="flabel">Title *</label><input class="finput" id="f-title" placeholder='e.g. "Golden Resin Flow"'></div>
                 <div class="fg"><label class="flabel">Medium *</label><select class="fsel" id="f-type"><option value="">Select...</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Photography</option><option>Mixed Media</option></select></div>
@@ -1255,6 +1268,51 @@ tr:hover td{background:var(--bg)}
     <!-- ═══════════════════════════════════════════════════════
          MY CONSULTANTS — IEBC WORKFORCE PORTAL
     ═══════════════════════════════════════════════════════ -->
+    <!-- AI AGENTS -->
+    <div class="page" id="page-agents">
+      <style>
+        #page-agents .ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-bottom:18px}
+        #page-agents .ag-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;transition:transform .18s,box-shadow .18s;border-top:3px solid var(--border)}
+        #page-agents .ag-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.07)}
+        #page-agents .ag-card.active{border-color:var(--ink)}
+        #page-agents .ag-ava{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.05rem;margin-bottom:9px}
+        #page-agents .ag-card-name{font-weight:700;font-size:.84rem;margin-bottom:2px}
+        #page-agents .ag-card-role{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px}
+        #page-agents .ag-card-blurb{font-size:.69rem;color:var(--ink2);line-height:1.6}
+        #page-agents .ag-chat-card{background:var(--white);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;min-height:440px;overflow:hidden}
+        #page-agents .ag-chat-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+        #page-agents .ag-chat-av{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.15rem}
+        #page-agents .ag-chat-name{font-weight:700;font-size:.9rem}
+        #page-agents .ag-chat-role{font-size:.66rem;color:var(--muted)}
+        #page-agents .ag-starters{display:flex;gap:7px;flex-wrap:wrap;padding:12px 16px 0}
+        #page-agents .ag-chip{font-size:.68rem;border:1px solid var(--border);background:var(--bg);border-radius:16px;padding:5px 11px;cursor:pointer;color:var(--ink2);transition:border-color .15s,color .15s;text-align:left}
+        #page-agents .ag-chip:hover{border-color:var(--amber);color:var(--amber)}
+        #page-agents .ag-msgs{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:11px;min-height:210px}
+        #page-agents .ag-msg{display:flex;gap:9px;max-width:88%}
+        #page-agents .ag-msg.you{align-self:flex-end;flex-direction:row-reverse}
+        #page-agents .ag-bubble{padding:10px 13px;border-radius:12px;font-size:.8rem;line-height:1.65;background:var(--bg);color:var(--ink)}
+        #page-agents .ag-msg.you .ag-bubble{background:var(--ink);color:#fff}
+        #page-agents .ag-b-av{width:28px;height:28px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.9rem}
+        #page-agents .ag-empty{color:var(--muted);font-size:.76rem;text-align:center;margin:auto;max-width:430px;line-height:1.7}
+        #page-agents .ag-input{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--border)}
+        #page-agents .ag-input textarea{flex:1;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:.8rem;resize:none;max-height:120px;color:var(--ink)}
+        #page-agents .ag-input textarea:focus{outline:none;border-color:var(--amber)}
+      </style>
+      <div class="ag-grid" id="ag-grid"></div>
+      <div class="ag-chat-card">
+        <div class="ag-chat-head">
+          <div class="ag-chat-av" id="ag-head-av">🎨</div>
+          <div><div class="ag-chat-name" id="ag-head-name">The Curator</div><div class="ag-chat-role" id="ag-head-role"></div></div>
+        </div>
+        <div class="ag-starters" id="ag-starters"></div>
+        <div class="ag-msgs" id="ag-msgs"></div>
+        <div class="ag-input">
+          <textarea id="ag-ta" rows="1" placeholder="Ask your agent anything…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();agentSend();}"></textarea>
+          <button class="btn btn-amber" id="ag-send" onclick="agentSend()">Send</button>
+        </div>
+      </div>
+    </div>
+
     <div class="page" id="page-consultants">
 
     <style>
@@ -2186,6 +2244,7 @@ const pmeta = {
   connections: { t:'Connections & API Keys', s:'Connect your accounts — synced to the whole team.' },
   orders:      { t:'Website Orders & Inquiries', s:'Leads and purchase requests from your website.' },
   consultants: { t:'My Consultants', s:'Your IEBC consultant team — available 24/7.' },
+  agents:      { t:'My AI Agents', s:'Your always-on team — curate pieces, work leads, plan posts, run ops & rentals.' },
 };
 
 function goPage(id, btn) {
@@ -2206,6 +2265,7 @@ function goPage(id, btn) {
   if (id === 'emails')      renderEmailTemplates();
   if (id === 'connections') loadSavedKeys();
   if (id === 'consultants') cpInit();
+  if (id === 'agents')      renderAgentsPage();
 }
 
 // ── DASHBOARD ──
@@ -2393,6 +2453,211 @@ function resetPublish() {
 }
 
 function openPublishModal() { goPage('publish', document.querySelector('[onclick*=publish]')); }
+
+// ── AI AGENTS ───────────────────────────────────────────────────
+// Five working agents on the same Anthropic key as the rest of the hub.
+// The Curator also powers the "Curate with AI" button on the Publish page.
+async function askClaude({ system, messages, maxTokens }) {
+  const apiKey = keys['anthropic-key'] || keys['iebc-api-key'] || '';
+  if (!apiKey) { const e = new Error('NO_KEY'); e.code = 'NO_KEY'; throw e; }
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: maxTokens || 1500, system, messages })
+  });
+  if (!res.ok) throw new Error((await res.text()).slice(0, 240));
+  const data = await res.json();
+  return data.content?.[0]?.text || '';
+}
+
+const AGENTS = [
+  { id:'curator', name:'The Curator', ini:'🎨', color:'#8b3fff', role:'Curates & describes each piece',
+    blurb:'Writes titles, descriptions, materials wording & captions from a piece photo. Also powers the Publish page.',
+    system:'You are The Curator for cecepieces — a one-of-a-kind resin, glass & mixed-media art studio run by the artist Cece. No prints, no reproductions; every piece is original. Write gallery-quality copy: evocative but concrete and sensory, in Cece\'s warm first-person voice, never generic filler. Titles short and poetic; descriptions 2–3 sentences; captions warm with a few tasteful emojis and 6–9 relevant hashtags including #cecepieces. When Cece pastes rough notes, polish them.',
+    starters:['Give me 5 title ideas for a teal-and-gold resin ocean piece','Polish these notes into a description: ','Write an Instagram caption for my newest piece'] },
+  { id:'sales', name:'Sales & Leads', ini:'💼', color:'#7C3AED', role:'Turns inquiries into sales',
+    blurb:'Flags hot leads, drafts personalized follow-ups, and suggests the next move on every website inquiry.',
+    system:'You are the Sales & Leads agent for cecepieces (original resin & mixed-media art, plus rentals and commissions). Help Cece convert website inquiries and contacts into sales. Be warm, concise and specific; when asked, write ready-to-send replies in Cece\'s friendly artist voice and sign as Cece. Prioritize leads by intent and recency. Never be pushy.',
+    starters:['Which leads should I follow up with first?','Draft a friendly follow-up to my newest inquiry','A collector asked "is this still available?" — write a reply'] },
+  { id:'marketing', name:'Marketing & Social', ini:'📣', color:'#B45309', role:'Plans posts & content',
+    blurb:'Platform-ready captions and hashtags, plus a simple weekly content calendar for Instagram, TikTok & Facebook.',
+    system:'You are the Marketing & Social agent for cecepieces. Plan and write social content across Instagram, TikTok and Facebook for an original resin/mixed-media artist. Voice: warm, authentic, a little poetic — no corporate jargon, no over-hashtagging (6–9 focused tags). Favor pour/process video ideas and behind-the-scenes. Give concrete, ready-to-post copy and a simple weekly calendar when asked.',
+    starters:['Plan my posts for this week','Write a TikTok hook for a pour process video','Caption a new memorial piece respectfully'] },
+  { id:'operations', name:'Operations & Finance', ini:'📊', color:'#0F766E', role:'Pricing, inventory & money',
+    blurb:'Pricing guidance, inventory & rental status, invoice wording, and a plain-English weekly business summary.',
+    system:'You are the Operations & Finance agent for cecepieces. Help Cece price work, track inventory and rentals, draft invoices, and understand her numbers (sales, rentals, commissions). Be practical and specific with dollar ranges and clear reasoning. Keep it plain-English — Cece is an artist, not an accountant.',
+    starters:['How should I price a 24x24 resin piece?','Give me a plain-English summary of my business this week','Draft an invoice message for a $450 commission'] },
+  { id:'rentals', name:'Rentals Concierge', ini:'🎪', color:'#0369A1', role:'Event rentals & bookings',
+    blurb:'Handles event-rental requests — availability, quotes and polished confirmations for weddings, staging & events.',
+    system:'You are the Rentals Concierge for cecepieces, which rents original art for weddings, events, home staging and more. Help Cece answer rental requests, build quotes from her day/weekend/week/event rates and deposit, check availability, and write gracious confirmations and return reminders. Be warm and organized, and always protect the artwork (care + deposit terms).',
+    starters:['A planner wants 3 pieces for a weekend wedding — draft a quote','Write a booking confirmation with pickup + deposit terms','What should my deposit policy say?'] },
+];
+
+let AG_STATE = { current: 'curator', chats: {}, busy: false };
+
+// Ground every agent in the studio's live numbers (and per-role detail).
+function agentContext(id) {
+  const avail = pieces.filter(p => (p.status||'available')==='available').length;
+  const sold  = pieces.filter(p => p.status==='sold').length;
+  const onR   = pieces.filter(p => p.status==='on-rental').length;
+  const value = pieces.reduce((a,p) => a+(parseFloat(p.price)||0), 0);
+  const ords  = (typeof orders !== 'undefined' && orders) ? orders : [];
+  const rents = (typeof rentalBookings !== 'undefined' && rentalBookings) ? rentalBookings : [];
+  const openInq  = ords.filter(o => o.status==='pending').length;
+  const pendRent = rents.filter(b => b.status==='pending').length;
+  let ctx = `LIVE DATA (now): ${pieces.length} pieces (${avail} available, ${sold} sold, ${onR} out on rental); catalog value $${value.toLocaleString()}; ${contacts.length} contacts; ${openInq} open website inquiries; ${pendRent} pending rental requests. Brand: studio "cecepieces", hub "cecepieceshub".`;
+  if (id==='sales') {
+    const r = ords.slice(0,5).map(o => `• ${o.piece_title||'inquiry'} — $${o.price||'?'} — ${o.status} — ${o.customer_name||o.customer_email||'no contact captured'}`).join('\n');
+    if (r) ctx += `\nRecent inquiries:\n${r}`;
+  }
+  if (id==='rentals') {
+    const p = rents.filter(b=>b.status==='pending').slice(0,5).map(b => `• ${b.renter_name} — ${b.event_type||'event'} — ${b.start_date||'?'}→${b.end_date||'?'}`).join('\n');
+    if (p) ctx += `\nPending rental requests:\n${p}`;
+    const rr = pieces.filter(p=>p.for_rent).slice(0,8).map(p => `• ${p.title} — day $${p.rent_day||'-'} / wknd $${p.rent_weekend||'-'} / week $${p.rent_week||'-'} / event $${p.rent_event||'-'}`).join('\n');
+    if (rr) ctx += `\nRentable pieces & rates:\n${rr}`;
+  }
+  if (id==='operations') {
+    const l = pieces.slice(0,8).map(p => `• ${p.title} — $${p.price||'?'} — ${p.status||'available'}`).join('\n');
+    if (l) ctx += `\nInventory sample:\n${l}`;
+  }
+  return ctx;
+}
+
+function agFmt(s) {
+  const esc = (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return esc.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
+}
+
+function renderAgentsPage() {
+  const grid = document.getElementById('ag-grid'); if (!grid) return;
+  grid.innerHTML = AGENTS.map(a => `<div class="ag-card" data-id="${a.id}" style="border-top-color:${a.color}" onclick="selectAgent('${a.id}')">
+    <div class="ag-ava" style="background:${a.color}22">${a.ini}</div>
+    <div class="ag-card-name">${a.name}</div>
+    <div class="ag-card-role">${a.role}</div>
+    <div class="ag-card-blurb">${a.blurb}</div>
+  </div>`).join('');
+  selectAgent(AG_STATE.current || 'curator');
+}
+
+function selectAgent(id) {
+  const a = AGENTS.find(x => x.id===id); if (!a) return;
+  AG_STATE.current = id;
+  const av = document.getElementById('ag-head-av');
+  av.textContent = a.ini; av.style.background = a.color+'22';
+  document.getElementById('ag-head-name').textContent = a.name;
+  document.getElementById('ag-head-role').textContent = a.role;
+  document.getElementById('ag-starters').innerHTML = a.starters.map(s => `<button class="ag-chip" onclick="agentStarter(this)">${s.replace(/"/g,'&quot;')}</button>`).join('');
+  document.querySelectorAll('#ag-grid .ag-card').forEach(c => c.classList.toggle('active', c.dataset.id===id));
+  agentRenderMsgs(true);
+  document.getElementById('ag-ta')?.focus();
+}
+
+function agentRenderMsgs(scroll) {
+  const a = AGENTS.find(x => x.id===AG_STATE.current);
+  const el = document.getElementById('ag-msgs'); if (!el || !a) return;
+  const msgs = AG_STATE.chats[a.id] || [];
+  if (!msgs.length) {
+    el.innerHTML = `<div class="ag-empty">${a.ini} &nbsp;<strong>${a.name}</strong> is ready.<br>${a.blurb}<br><br>Tap a starter above or type a question below.</div>`;
+    return;
+  }
+  el.innerHTML = msgs.map(m => m.role==='user'
+    ? `<div class="ag-msg you"><div class="ag-bubble">${agFmt(m.content)}</div></div>`
+    : `<div class="ag-msg"><div class="ag-b-av" style="background:${a.color}22">${a.ini}</div><div class="ag-bubble">${agFmt(m.content)}</div></div>`
+  ).join('');
+  if (AG_STATE.busy) el.innerHTML += `<div class="ag-msg"><div class="ag-b-av" style="background:${a.color}22">${a.ini}</div><div class="ag-bubble" style="color:var(--muted)">…thinking</div></div>`;
+  if (scroll) el.scrollTop = el.scrollHeight;
+}
+
+function agentStarter(btn) {
+  const t = btn.textContent;
+  const ta = document.getElementById('ag-ta');
+  ta.value = t;
+  if (/:\s*$/.test(t)) { ta.focus(); } else { agentSend(); }
+}
+
+async function agentSend() {
+  const a = AGENTS.find(x => x.id===AG_STATE.current); if (!a || AG_STATE.busy) return;
+  const ta = document.getElementById('ag-ta');
+  const text = ta.value.trim(); if (!text) return;
+  if (!(keys['anthropic-key'] || keys['iebc-api-key'])) { agentsNoKey(); return; }
+  ta.value = ''; ta.style.height = 'auto';
+  if (!AG_STATE.chats[a.id]) AG_STATE.chats[a.id] = [];
+  AG_STATE.chats[a.id].push({ role:'user', content:text });
+  AG_STATE.busy = true;
+  document.getElementById('ag-send').disabled = true;
+  agentRenderMsgs(true);
+  try {
+    const messages = AG_STATE.chats[a.id].map(m => ({ role:m.role, content:m.content }));
+    const reply = await askClaude({ system: a.system + '\n\n' + agentContext(a.id), messages });
+    AG_STATE.chats[a.id].push({ role:'assistant', content: reply || '(no response)' });
+  } catch(e) {
+    AG_STATE.chats[a.id].push({ role:'assistant', content: '⚠️ ' + (e.message || 'Something went wrong — check your Anthropic key in Connections.') });
+  }
+  AG_STATE.busy = false;
+  document.getElementById('ag-send').disabled = false;
+  agentRenderMsgs(true);
+}
+
+function agentsNoKey() {
+  showToast('Add your Anthropic API key in Connections to use the agents.','t-amber');
+  const a = AGENTS.find(x => x.id===AG_STATE.current); if (!a) return;
+  if (!AG_STATE.chats[a.id]) AG_STATE.chats[a.id] = [];
+  AG_STATE.chats[a.id].push({ role:'assistant', content:'⚠️ I need an Anthropic API key to think. Add it on the **Connections** page under the key name `anthropic-key`, then come back — I\'ll be ready.' });
+  agentRenderMsgs(true);
+}
+
+// The Curator, wired into Publish: read the photo (vision) and fill the fields.
+function parseJsonLoose(t) {
+  try { return JSON.parse(t); } catch(e) {}
+  const m = t && t.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch(e) {} }
+  return null;
+}
+
+async function curatePiece() {
+  if (!imgData) { showToast('Upload the piece photo first.','t-error'); return; }
+  if (!(keys['anthropic-key'] || keys['iebc-api-key'])) { showToast('Add your Anthropic key in Connections to use the Curator.','t-amber'); goPage('connections', document.querySelector('[onclick*=connections]')); return; }
+  const btn = document.getElementById('curateBtn');
+  const label = btn.innerHTML; btn.disabled = true; btn.innerHTML = '🎨 &nbsp;Curating from your photo…';
+  const type = document.getElementById('f-type').value;
+  const price = document.getElementById('f-price').value.trim();
+  const mats = document.getElementById('f-mats').value.trim();
+  const title = document.getElementById('f-title').value.trim();
+  const curator = AGENTS.find(a => a.id==='curator');
+  const prompt = `Look at this artwork photo and write gallery copy for it. Respond with ONLY minified JSON (no prose, no code fences) using these keys:
+"title": a short evocative name${title ? ' (keep it close to "'+title+'")' : ''};
+"description": 2–3 sensory sentences in Cece's warm first-person voice;
+"materials": a short materials phrase${mats ? ' building on "'+mats+'"' : ''};
+"caption": an Instagram caption with 2–3 tasteful emojis and 6–9 relevant hashtags including #cecepieces.
+Known details — medium: ${type||'unknown'}; price: ${price||'unknown'}.`;
+  try {
+    const txt = await askClaude({
+      system: curator.system + ' Respond with only the requested JSON.',
+      messages: [{ role:'user', content: [
+        { type:'image', source:{ type:'base64', media_type:'image/jpeg', data: imgData.split(',')[1] } },
+        { type:'text', text: prompt }
+      ] }],
+      maxTokens: 900
+    });
+    const obj = parseJsonLoose(txt);
+    if (!obj) throw new Error('Could not read the Curator response — try again.');
+    if (obj.title) document.getElementById('f-title').value = obj.title;
+    if (obj.materials) document.getElementById('f-mats').value = obj.materials;
+    if (obj.description) document.getElementById('f-desc').value = obj.description;
+    updateCaption();
+    if (obj.caption) document.getElementById('cap-ig').textContent = obj.caption;
+    showToast('🎨 The Curator filled in the details — review & tweak before publishing!','t-success');
+  } catch(e) {
+    showToast('Curator: ' + (e.message || 'something went wrong — try again.'), 't-error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = label;
+  }
+}
 
 // ── VARIATIONS (author + auto-generate) ─────────────────────────
 // A piece has one main image plus an optional list of variations, each
