@@ -3144,7 +3144,10 @@ async function logContactOut(id) {
 
 // ── CONNECTIONS / KEYS ──
 async function saveKey(service) {
-  if (service==='stripe') {
+  if (service==='anthropic') {
+    const k=document.getElementById('anthropic-key').value.trim(); if(!k){showToast('Enter your Anthropic key.','t-error');return;}
+    keys['anthropic-key']=k; setConnected('anthropic','anthropic-dot','anthropic-status','✅ Connected — the Curator & agents are ready');
+  } else if (service==='stripe') {
     const k=document.getElementById('stripe-key').value.trim(); if(!k){showToast('Enter your Stripe key.','t-error');return;}
     keys['stripe-key']=k; setConnected('stripe','stripe-dot','stripe-status','✅ Connected — payment links will be generated');
   } else if (service==='shopify') {
@@ -3190,6 +3193,7 @@ function setConnected(cardId, dotId, statusId, msg) {
 }
 
 function loadSavedKeys() {
+  if(keys['anthropic-key']) setConnected('anthropic','anthropic-dot','anthropic-status','✅ Connected — the Curator & agents are ready');
   if(keys['stripe-key']) setConnected('stripe','stripe-dot','stripe-status','✅ Connected');
   if(keys['shopify-key']) setConnected('shopify','shopify-dot','shopify-status','✅ Connected');
   if(keys['mailchimp-key']) setConnected('mailchimp','mailchimp-dot','mailchimp-status','✅ Connected');
@@ -3197,7 +3201,7 @@ function loadSavedKeys() {
   if(keys['tt-token']) setConnected('tiktok','tt-dot','tt-status','✅ Connected');
   if(keys['venmo-handle']||keys['cashapp-handle']) setConnected('venmo','venmo-dot2','venmo-status2','✅ Saved');
   if(keys['fb-token']) setConnected('facebook','fb-page-dot','fb-page-status','✅ Connected');
-  const inputs=[['stripe-key','stripe-key'],['shopify-store','shopify-store'],['shopify-key','shopify-key'],['mailchimp-key','mailchimp-key'],['mailchimp-list','mailchimp-list'],['ig-token','ig-token'],['ig-user-id','ig-user-id'],['tt-token','tt-token'],['venmo-handle','venmo-handle'],['cashapp-handle','cashapp-handle'],['fb-token','fb-token'],['fb-page-id','fb-page-id']];
+  const inputs=[['anthropic-key','anthropic-key'],['stripe-key','stripe-key'],['shopify-store','shopify-store'],['shopify-key','shopify-key'],['mailchimp-key','mailchimp-key'],['mailchimp-list','mailchimp-list'],['ig-token','ig-token'],['ig-user-id','ig-user-id'],['tt-token','tt-token'],['venmo-handle','venmo-handle'],['cashapp-handle','cashapp-handle'],['fb-token','fb-token'],['fb-page-id','fb-page-id']];
   inputs.forEach(([k,id])=>{ const el=document.getElementById(id); if(el&&keys[k]) el.value=keys[k]; });
 }
 
