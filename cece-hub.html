@@ -1866,6 +1866,24 @@ tr:hover td{background:var(--bg)}
   </div>
 </div>
 
+<!-- CONTACT DETAIL MODAL -->
+<div class="modal-overlay" id="contactDetailModal">
+  <div class="modal" style="max-width:560px">
+    <button class="modal-x" onclick="closeContactDetail()">✕</button>
+    <div style="font-size:.62rem;letter-spacing:.15em;text-transform:uppercase;color:var(--amber);margin-bottom:4px">Customer</div>
+    <div style="font-family:'Playfair Display',serif;font-size:1.5rem;margin-bottom:6px" id="cd-name"></div>
+    <div id="cd-meta" style="font-size:.76rem;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:4px;align-items:center"></div>
+    <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px">Purchases &amp; inquiries</div>
+    <div id="cd-orders" style="margin-bottom:16px"></div>
+    <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px">Communications</div>
+    <div id="cd-log" style="font-size:.78rem;color:var(--ink2);line-height:1.7;white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;max-height:160px;overflow:auto"></div>
+    <div style="display:flex;gap:8px">
+      <input class="finput" id="cd-comm-input" placeholder="Log a call, email, or note…" style="flex:1;margin:0">
+      <button class="btn btn-teal btn-sm" onclick="logCommunication()">＋ Log</button>
+    </div>
+  </div>
+</div>
+
 <!-- ORDER / BUYER MODAL -->
 <div class="modal-overlay" id="orderModal">
   <div class="modal" style="max-width:520px">
@@ -1879,6 +1897,7 @@ tr:hover td{background:var(--bg)}
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
       <button class="btn btn-teal btn-sm" id="om-email-btn">✉ Email buyer</button>
+      <button class="btn btn-ghost btn-sm" id="om-crm-btn">➕ Add to CRM</button>
       <button class="btn btn-green btn-sm" id="om-confirm-btn">✓ Confirm</button>
       <button class="btn btn-amber btn-sm" id="om-sold-btn">Mark Sold</button>
     </div>
@@ -2181,7 +2200,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   ['f-title','f-type','f-price','f-mats'].forEach(id => document.getElementById(id)?.addEventListener('input', updateCaption));
 
   // Setup modals close on backdrop click
-  ['contactModal','pieceModal'].forEach(id => {
+  ['contactModal','pieceModal','orderModal','contactDetailModal'].forEach(id => {
     document.getElementById(id).addEventListener('click', e => { if (e.target.id === id) document.getElementById(id).classList.remove('open'); });
   });
 
@@ -3106,18 +3125,100 @@ function closeContactModal() {
 
 const ctMap = {'Interior Designer':'ct-id','Art Collector':'ct-col','Home Decor':'ct-dec','Corporate':'ct-co','Funeral Home':'ct-fu'};
 
+// ── ORDERS → CRM (customer, purchases & communications) ──
+function findContactByEmail(email){
+  const e=(email||'').toLowerCase().trim(); if(!e) return null;
+  return contacts.find(c=>(c.email||'').toLowerCase().trim()===e) || null;
+}
+function orderLogLine(o){
+  const d=new Date(o.created_at||Date.now()).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  const kind=o.type==='purchase'?'Purchase':(o.type==='rental'?'Rental':'Inquiry');
+  return `[${d}] ${kind}: ${o.piece_title||'a piece'}${o.price?' · $'+o.price:''}`;
+}
+// Create or update the CRM contact for a website order. Dedupes by email.
+async function syncOrderToCRM(o, opts={}){
+  if(!CONFIGURED) return null;
+  const email=(o.customer_email||'').trim();
+  const phone=(o.customer_phone||((/Phone:\s*([^\n]+)/i.exec(o.notes||'')||[])[1]||'')).trim();
+  const line=orderLogLine(o);
+  let c=findContactByEmail(email);
+  try{
+    if(c){
+      const notes=(c.notes&&c.notes.indexOf(line)>=0)?c.notes:((c.notes?c.notes+'\n':'')+line);
+      const upd={notes, heat:'hot'}; if(!c.phone&&phone) upd.phone=phone;
+      await sb.update('contacts', c.id, upd); Object.assign(c,upd);
+    } else {
+      if(!email && !opts.force) return null;
+      const [saved]=await sb.insert('contacts',{ name:o.customer_name||email||'Website Buyer', type:'Art Collector', email, phone, heat:'hot', source:'Website '+(o.type||'inquiry'), notes:line, last_out:'—' });
+      if(saved){ contacts.unshift(saved); c=saved; }
+    }
+    if(!opts.silent){ renderCRM(crmFilter); const dc=document.getElementById('ds-contacts'); if(dc) dc.textContent=contacts.length; const cc=document.getElementById('contactCountCap'); if(cc) cc.textContent=contacts.length; }
+    return c;
+  }catch(e){ console.warn('syncOrderToCRM failed',e); return null; }
+}
+// Backfill CRM from every website order (once per unique buyer email).
+let _crmSyncing=false;
+async function syncAllOrdersToCRM(){
+  if(_crmSyncing||!CONFIGURED) return; _crmSyncing=true;
+  try{
+    let added=false;
+    for(const o of orders){ const email=(o.customer_email||'').trim(); if(email && !findContactByEmail(email)){ await syncOrderToCRM(o,{silent:true}); added=true; } }
+    if(added){ renderCRM(crmFilter); const dc=document.getElementById('ds-contacts'); if(dc) dc.textContent=contacts.length; }
+  } finally { _crmSyncing=false; }
+}
+
+// ── CONTACT DETAIL (info + purchases + communications) ──
+let currentContactId=null;
+function openContactDetail(id){
+  const c=contacts.find(x=>x.id===id); if(!c) return;
+  currentContactId=id;
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  document.getElementById('cd-name').textContent=c.name||'Contact';
+  const email=c.email||'', phone=c.phone||'';
+  document.getElementById('cd-meta').innerHTML=[
+    `<span class="ct ${ctMap[c.type]||''}">${esc(c.type||'Contact')}</span>`,
+    email?`<a href="mailto:${esc(email)}" style="color:var(--teal)">${esc(email)}</a>`:'',
+    phone?`<a href="tel:${esc(phone.replace(/[^0-9+]/g,''))}" style="color:var(--teal)">${esc(phone)}</a>`:'',
+    c.source?`<span style="color:var(--muted)">${esc(c.source)}</span>`:''
+  ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+  const theirs=email?orders.filter(o=>(o.customer_email||'').toLowerCase().trim()===email.toLowerCase().trim()):[];
+  document.getElementById('cd-orders').innerHTML = theirs.length ? theirs.map(o=>{
+    const d=new Date(o.created_at||Date.now()).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:.76rem"><span>${esc(o.piece_title||'a piece')} <span style="color:var(--muted)">· ${esc(o.type||'inquiry')} · ${d}</span></span><span style="font-weight:600;color:var(--amber)">${o.price?'$'+esc(o.price):''} <span style="color:${o.status==='confirmed'?'var(--green)':'var(--muted)'}">${esc(o.status||'')}</span></span></div>`;
+  }).join('') : '<div style="font-size:.74rem;color:var(--muted)">No website orders linked to this email yet.</div>';
+  document.getElementById('cd-log').textContent = c.notes || 'No communications logged yet.';
+  document.getElementById('cd-comm-input').value='';
+  document.getElementById('contactDetailModal').classList.add('open');
+}
+function closeContactDetail(){ document.getElementById('contactDetailModal').classList.remove('open'); currentContactId=null; }
+async function logCommunication(){
+  const c=contacts.find(x=>x.id===currentContactId); if(!c) return;
+  const txt=document.getElementById('cd-comm-input').value.trim(); if(!txt){ showToast('Type what happened first.','t-error'); return; }
+  const d=new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  const notes=(c.notes?c.notes+'\n':'')+`[${d}] ${txt}`;
+  try{
+    await sb.update('contacts', c.id, { notes, last_out:d });
+    c.notes=notes; c.last_out=d;
+    document.getElementById('cd-log').textContent=notes;
+    document.getElementById('cd-comm-input').value='';
+    renderCRM(crmFilter);
+    addActivity(`✉️ Logged communication with <strong>${c.name}</strong>`);
+    showToast('Communication logged.','t-success');
+  }catch(e){ showToast('Error logging','t-error'); }
+}
+
 function renderCRM(filt='all') {
   const b = document.getElementById('crm-body'); if(!b) return;
   const list = filt==='all' ? contacts : contacts.filter(c=>c.type===filt);
   if (!list.length) { b.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:28px;font-size:.78rem">No contacts yet. Add your first lead!</td></tr>'; return; }
-  b.innerHTML = list.map(c=>`<tr>
+  b.innerHTML = list.map(c=>`<tr onclick="openContactDetail('${c.id}')" style="cursor:pointer">
     <td><strong>${c.name}</strong>${c.source?'<br><span style="font-size:.62rem;color:var(--muted)">'+c.source+'</span>':''}</td>
     <td><span class="ct ${ctMap[c.type]||''}">${c.type}</span></td>
     <td style="font-size:.73rem">${c.email||'—'}</td>
     <td><div class="heat"><div class="heat-dot h-${c.heat}"></div><span style="font-size:.7rem;text-transform:capitalize">${c.heat}</span></div></td>
     <td style="font-size:.7rem;color:var(--muted)">${c.last_out||'—'}</td>
     <td style="font-size:.7rem;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.notes||'—'}</td>
-    <td><button class="btn btn-ghost btn-xs" onclick="logContactOut('${c.id}')">Log Outreach</button></td>
+    <td><button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openContactDetail('${c.id}')">View</button><button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="event.stopPropagation();logContactOut('${c.id}')">Log Outreach</button></td>
   </tr>`).join('');
 }
 
@@ -3843,6 +3944,8 @@ async function renderOrders() {
 
   // Orders table
   renderOrdersTable();
+  // Ensure every website order's buyer is in the CRM
+  syncAllOrdersToCRM();
   // Rental requests table
   renderWebRentalsTable();
 }
@@ -3908,6 +4011,10 @@ function openOrderModal(id) {
   const emailBtn = document.getElementById('om-email-btn');
   emailBtn.style.display = email ? '' : 'none';
   emailBtn.onclick = () => { window.location.href = 'mailto:'+email+'?subject='+encodeURIComponent('Your cecepieces order — '+(o.piece_title||'')); };
+  const crmBtn = document.getElementById('om-crm-btn');
+  const existing = findContactByEmail(o.customer_email);
+  crmBtn.textContent = existing ? '👤 In CRM — view customer' : '➕ Add to CRM';
+  crmBtn.onclick = async () => { const c = await syncOrderToCRM(o, {force:true}); if(c){ closeOrderModal(); openContactDetail(c.id); } else { showToast('Add an email to this order to save the customer.','t-amber'); } };
   document.getElementById('om-confirm-btn').onclick = () => { confirmOrder(id); closeOrderModal(); };
   const soldBtn = document.getElementById('om-sold-btn');
   soldBtn.style.display = o.piece_id ? '' : 'none';
@@ -4003,6 +4110,8 @@ function startOrderPolling() {
       if (newOrders.length) {
         orders = fresh || [];
         newOrders.forEach(o => addActivity(`🛒 New ${o.type||'inquiry'} from website: <strong>${o.piece_title||'a piece'}</strong>`));
+        for (const o of newOrders) { await syncOrderToCRM(o, {silent:true}); }
+        renderCRM(crmFilter);
         showToast(`📱 ${newOrders.length} new order${newOrders.length>1?'s':''} from your website!`,'t-amber');
         if (document.getElementById('page-orders')?.classList.contains('active')) renderOrders();
       }
