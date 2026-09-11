@@ -2507,6 +2507,18 @@ const CATALOG_SEED = [
     materials:'Resin ornament with personalized name & character, ribbon',
     description:'Personalized keepsake ornaments — a name, a character, a little glitter. Perfect for stockings, gift tags and the tree.',
     image:CB+'IMG_4066.jpeg', variations:[] },
+  { title:'Botanical Memory Frame', type:'Memorial Piece', price:'150',
+    materials:'Round wood frame, real pressed flowers & feathers, glass keepsake vial, resin',
+    description:'Real pressed flowers, delicate feathers and a tiny glass keepsake vial arranged inside a round wooden frame — a botanical memory kept under glass. Made to order from your own blooms and mementos.',
+    image:CB+'botanical-memory-frame_2026-09-11_1302.jpeg', variations:[] },
+  { title:'Forest Landscape Block', type:'Resin Art', price:'145',
+    materials:'Hand-painted forest landscape sealed in a clear epoxy resin block',
+    description:'A hand-painted evergreen forest at golden hour — pines mirrored in a still river under a blush sky — sealed inside a crystal-clear resin block that catches the light from every side.',
+    image:CB+'forest-landscape-block_2026-09-11_1302.jpeg', variations:[] },
+  { title:'Feather Heart Keychain', type:'Memorial Piece', price:'45',
+    materials:'Epoxy resin with a real feather or pressed flower, metal keyring',
+    description:'A little resin keepsake keychain holding a real feather or a pressed flower — carried in a heart or a round charm. A quiet way to keep something meaningful close.',
+    image:CB+'feather-heart-keychain_2026-09-11_1302.jpeg', variations:[] },
 ];
 async function importCatalog() {
   if (!CONFIGURED) { showToast('Connect Supabase first.','t-error'); return; }
