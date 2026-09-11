@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "_comment": "cecepieceshub — Vercel static hosting. Generated 2026-09-11_1300 UTC. Serves cece-hub.html at the site root so the login hand-off (#hubsess=...) from the website lands inside the hub. The URL #hash never leaves the browser, so the handed-off session survives the rewrite.",
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/", "destination": "/cece-hub.html" }
+  ]
+}
