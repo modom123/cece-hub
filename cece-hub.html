@@ -1866,6 +1866,25 @@ tr:hover td{background:var(--bg)}
   </div>
 </div>
 
+<!-- ORDER / BUYER MODAL -->
+<div class="modal-overlay" id="orderModal">
+  <div class="modal" style="max-width:520px">
+    <button class="modal-x" onclick="closeOrderModal()">✕</button>
+    <div style="font-size:.62rem;letter-spacing:.15em;text-transform:uppercase;color:var(--amber);margin-bottom:4px">Order / Inquiry</div>
+    <div style="font-family:'Playfair Display',serif;font-size:1.4rem;margin-bottom:14px" id="om-title"></div>
+    <div id="om-rows"></div>
+    <div style="margin-top:14px">
+      <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px">Message</div>
+      <div id="om-notes" style="font-size:.8rem;color:var(--ink2);line-height:1.7;white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
+      <button class="btn btn-teal btn-sm" id="om-email-btn">✉ Email buyer</button>
+      <button class="btn btn-green btn-sm" id="om-confirm-btn">✓ Confirm</button>
+      <button class="btn btn-amber btn-sm" id="om-sold-btn">Mark Sold</button>
+    </div>
+  </div>
+</div>
+
 <!-- PIECE MODAL -->
 <div class="modal-overlay" id="pieceModal">
   <div class="modal">
@@ -3843,7 +3862,7 @@ function renderOrdersTable() {
     const piece = pieces.find(p=>p.id===o.piece_id);
     const date = o.created_at ? new Date(o.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
     const statusColor = o.status==='confirmed'?'color:var(--green)':o.status==='pending'?'color:var(--amber)':'color:var(--muted)';
-    return `<tr>
+    return `<tr onclick="openOrderModal('${o.id}')" style="cursor:pointer">
       <td><strong>${o.piece_title||piece?.title||'Unknown piece'}</strong></td>
       <td><span class="ct ${typeColors[o.type]||''}">${o.type||'inquiry'}</span></td>
       <td style="font-size:.73rem">${o.customer_name||o.customer_email||'Website visitor'}</td>
@@ -3851,12 +3870,51 @@ function renderOrdersTable() {
       <td style="font-size:.72rem;font-weight:600;${statusColor}">${o.status||'pending'}</td>
       <td style="font-size:.7rem;color:var(--muted)">${date}</td>
       <td>
-        <button class="btn btn-ghost btn-xs" onclick="confirmOrder('${o.id}')">✓ Confirm</button>
-        <button class="btn btn-amber btn-xs" style="margin-left:4px" onclick="markPieceSoldFromOrder('${o.id}')">Mark Sold</button>
+        <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openOrderModal('${o.id}')">View</button>
+        <button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="event.stopPropagation();confirmOrder('${o.id}')">✓ Confirm</button>
+        <button class="btn btn-amber btn-xs" style="margin-left:4px" onclick="event.stopPropagation();markPieceSoldFromOrder('${o.id}')">Mark Sold</button>
       </td>
     </tr>`;
   }).join('');
 }
+
+// ── ORDER / BUYER DETAILS ──
+let currentOrderId = null;
+function openOrderModal(id) {
+  const o = orders.find(x=>x.id===id); if(!o) return;
+  currentOrderId = id;
+  const piece = pieces.find(p=>p.id===o.piece_id);
+  const date = o.created_at ? new Date(o.created_at).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : '—';
+  const email = o.customer_email || '';
+  // Phone may be its own field or embedded in the notes as "Phone: ...".
+  let phone = o.customer_phone || '';
+  let notes = o.notes || o.message || '';
+  if (!phone) { const m=/Phone:\s*([^\n]+)/i.exec(notes); if(m){ phone=m[1].trim(); notes=notes.replace(m[0],'').trim(); } }
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows = [
+    ['Buyer',  esc(o.customer_name||'—')],
+    ['Email',  email?`<a href="mailto:${esc(email)}" style="color:var(--teal)" onclick="event.stopPropagation()">${esc(email)}</a>`:'—'],
+    ['Phone',  phone?`<a href="tel:${esc(phone.replace(/[^0-9+]/g,''))}" style="color:var(--teal)">${esc(phone)}</a>`:'—'],
+    ['Piece',  esc(o.piece_title||piece?.title||'—')],
+    ['Price',  o.price?'$'+esc(o.price):'—'],
+    ['Type',   esc(o.type||'inquiry')],
+    ['Status', esc(o.status||'pending')],
+    ['Source', esc(o.source||'website')],
+    ['Placed', esc(date)]
+  ];
+  document.getElementById('om-title').textContent = o.piece_title||piece?.title||'Order details';
+  document.getElementById('om-rows').innerHTML = rows.map(([k,v])=>`<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)"><div style="width:70px;flex-shrink:0;font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">${k}</div><div style="font-size:.82rem;color:var(--ink);word-break:break-word">${v}</div></div>`).join('');
+  document.getElementById('om-notes').textContent = notes || 'No message left.';
+  const emailBtn = document.getElementById('om-email-btn');
+  emailBtn.style.display = email ? '' : 'none';
+  emailBtn.onclick = () => { window.location.href = 'mailto:'+email+'?subject='+encodeURIComponent('Your cecepieces order — '+(o.piece_title||'')); };
+  document.getElementById('om-confirm-btn').onclick = () => { confirmOrder(id); closeOrderModal(); };
+  const soldBtn = document.getElementById('om-sold-btn');
+  soldBtn.style.display = o.piece_id ? '' : 'none';
+  soldBtn.onclick = () => { markPieceSoldFromOrder(id); closeOrderModal(); };
+  document.getElementById('orderModal').classList.add('open');
+}
+function closeOrderModal() { document.getElementById('orderModal').classList.remove('open'); currentOrderId=null; }
 
 function renderWebRentalsTable() {
   const body = document.getElementById('web-rentals-body'); if (!body) return;
