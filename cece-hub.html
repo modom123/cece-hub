@@ -711,7 +711,8 @@ tr:hover td{background:var(--bg)}
           <div class="cf" onclick="filterColl('sold',this)">Sold</div>
           <div class="cf" onclick="filterColl('hold',this)">On Hold</div>
         </div>
-        <span style="margin-left:auto;font-size:.7rem;color:var(--muted)" id="coll-count">Loading...</span>
+        <button class="btn btn-amber btn-sm" id="coll-import" onclick="importCatalog()" style="margin-left:auto">📥 Import catalog</button>
+        <span style="font-size:.7rem;color:var(--muted)" id="coll-count">Loading...</span>
       </div>
       <div class="gallery" id="coll-gallery"></div>
     </div>
@@ -2453,6 +2454,55 @@ function resetPublish() {
 }
 
 function openPublishModal() { goPage('publish', document.querySelector('[onclick*=publish]')); }
+
+// ── STARTER CATALOG IMPORT ──────────────────────────────────────
+// One-click populate of the current cecepieces catalog into the database,
+// as the logged-in team account (so RLS is satisfied). Photos load from the
+// website repo; colorways become the variation library on each piece.
+const CB = 'https://raw.githubusercontent.com/modom123/cecethepieces/main/';
+const CATALOG_SEED = [
+  { title:'Resin River Wall Plaque', type:'Resin Art', price:'225',
+    materials:'Walnut wood, epoxy resin, alcohol inks, gold leaf, druzy crystal',
+    description:'A live-edge walnut river runs through a pour of deep resin, opening into a heart of blue-and-silver druzy crystal like a geode split by hand. Gilded botanical leaves climb the border. Poured one at a time — no two are ever alike.',
+    image:CB+'IMG_4026.jpeg',
+    variations:[{image:CB+'IMG_4027.jpeg',label:'Golden'},{image:CB+'IMG_4028.jpeg',label:'Ivory & Gold'},{image:CB+'IMG_4029.jpeg',label:'Blush'},{image:CB+'IMG_4024.jpeg',label:'Teal (Square)'}] },
+  { title:'Resin River Wall Art — Framed', type:'Resin Art', price:'550',
+    materials:'Walnut & epoxy resin on a framed panel, druzy crystal, metallic leaf',
+    description:'The Resin River composition on a larger framed panel — a live-edge walnut river and a druzy geode heart set behind a sleek metallic frame, ready to hang as a statement wall piece.',
+    image:CB+'IMG_4034.jpeg',
+    variations:[{image:CB+'IMG_4033.jpeg',label:'Teal & Silver'},{image:CB+'IMG_4035.jpeg',label:'Ivory Float'}] },
+  { title:'Beach Shore Memorial Block', type:'Memorial Piece', price:'150',
+    materials:'Epoxy resin, real beach sand, seashells & sea glass',
+    description:'A single ocean wave caught mid-break above real beach sand, tiny shells and a piece of sea glass — a quiet keepsake. Can be personalized with a name and dates. Choose an Emerald, Amethyst, or Black tide.',
+    image:CB+'IMG_4036.jpeg',
+    variations:[{image:CB+'IMG_4037.jpeg',label:'Amethyst'},{image:CB+'IMG_4038.jpeg',label:'Black'}] },
+  { title:'Emerald Beach Memorial Coasters', type:'Memorial Piece', price:'150',
+    materials:'Epoxy resin, real beach sand & shells — set of coasters',
+    description:'A set of coasters carrying the same emerald shoreline as the memorial blocks — real sand, tiny shells, a curl of white surf, and an optional gold name.',
+    image:CB+'IMG_4044.jpeg', variations:[] },
+];
+async function importCatalog() {
+  if (!CONFIGURED) { showToast('Connect Supabase first.','t-error'); return; }
+  const btn = document.getElementById('coll-import');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  let added = 0, skipped = 0, failed = 0;
+  for (const s of CATALOG_SEED) {
+    if (pieces.some(p => p.title === s.title)) { skipped++; continue; }
+    const piece = Object.assign({
+      status:'available', for_sale:true, for_rent:false,
+      date: new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    }, s);
+    try {
+      let saved;
+      try { [saved] = await sb.insert('pieces', piece); }
+      catch(e) { const { variations, ...noVars } = piece; [saved] = await sb.insert('pieces', noVars); }
+      if (saved) { pieces.unshift(saved); added++; }
+    } catch(e) { failed++; console.error('import failed for', s.title, e); }
+  }
+  renderCollection(); refreshDash(); populatePayPieceSel();
+  if (btn) { btn.disabled = false; btn.textContent = '📥 Import catalog'; }
+  showToast(`Imported ${added}${skipped?`, ${skipped} already there`:''}${failed?`, ${failed} failed — sign in & check Supabase`:''}.`, failed?'t-amber':'t-success');
+}
 
 // ── AI AGENTS ───────────────────────────────────────────────────
 // Five working agents on the same Anthropic key as the rest of the hub.
