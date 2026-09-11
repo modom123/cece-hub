@@ -1873,11 +1873,19 @@ tr:hover td{background:var(--bg)}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
       <div><img id="pm-img" src="" style="width:100%;border-radius:10px;object-fit:cover;max-height:300px" alt=""></div>
       <div>
-        <div style="font-size:.62rem;letter-spacing:.15em;text-transform:uppercase;color:var(--amber);margin-bottom:6px" id="pm-type"></div>
-        <div style="font-family:'Playfair Display',serif;font-size:1.5rem;margin-bottom:8px" id="pm-title"></div>
-        <div style="font-size:1.4rem;font-weight:700;color:var(--amber);margin-bottom:14px" id="pm-price"></div>
-        <div style="font-size:.74rem;color:var(--muted);line-height:1.8;margin-bottom:16px" id="pm-desc"></div>
-        <div style="font-size:.68rem;color:var(--muted);margin-bottom:16px" id="pm-dims"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+          <div style="font-size:.62rem;letter-spacing:.15em;text-transform:uppercase;color:var(--amber)">Edit piece</div>
+          <button type="button" class="btn btn-ghost btn-sm" id="pm-curate-btn" onclick="curatePieceEdit()" style="margin:0">🎨 Curate with AI</button>
+        </div>
+        <div class="fg"><label class="flabel">Title</label><input class="finput" id="pm-e-title" placeholder="Title"></div>
+        <div class="form-row">
+          <div class="fg"><label class="flabel">Category</label><select class="fsel" id="pm-e-type"><option value="">Select…</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Statement Panel</option><option>Seasonal Gift</option><option>Photography</option><option>Mixed Media</option></select></div>
+          <div class="fg"><label class="flabel">Price ($)</label><input class="finput" id="pm-e-price" placeholder="e.g. 150"></div>
+        </div>
+        <div class="fg"><label class="flabel">Dimensions</label><input class="finput" id="pm-e-dims" placeholder="e.g. 12 × 16 in"></div>
+        <div class="fg"><label class="flabel">Materials</label><input class="finput" id="pm-e-mats" placeholder="Materials"></div>
+        <div class="fg"><label class="flabel">Description</label><textarea class="finput" id="pm-e-desc" rows="3" style="resize:vertical" placeholder="Description"></textarea></div>
+        <button type="button" class="btn btn-amber btn-full" onclick="savePieceEdits()" style="margin-bottom:14px">💾 Save details</button>
         <div style="border-top:1px solid var(--border);margin-bottom:14px;padding-top:12px">
           <div style="font-size:.72rem;font-weight:700;margin-bottom:7px">🎨 Variations <span style="font-weight:400;color:var(--muted);font-size:.64rem">— shown on the website</span></div>
           <div id="pm-var-strip" style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px"></div>
@@ -2855,12 +2863,20 @@ function artCardHTML(p) {
     <div class="art-price">${p.price?'$'+p.price:'Inquire'}</div></div></div>`;
 }
 
+// Pieces are grouped by category (medium) in a set order so the collection
+// never looks random. Unknown categories sort to the end.
+const HUB_CAT_ORDER=['Resin Art','Statement Panel','Memorial Piece','Seasonal Gift','Painting','Mixed Media','Drawing','Sculpture','Photography'];
+function hubCatKey(p){ return p.type==='Decorative Urn'?'Memorial Piece':(p.type||'Uncategorized'); }
+function hubCatRank(t){ const i=HUB_CAT_ORDER.indexOf(t); return i<0?HUB_CAT_ORDER.length:i; }
 function renderCollection(filt='all') {
   const g = document.getElementById('coll-gallery'); if(!g) return;
   const list = filt==='all' ? pieces : pieces.filter(p=>(p.status||'available')===filt);
   document.getElementById('coll-count').textContent = list.length+' piece'+(list.length!==1?'s':'');
   if (!list.length) { g.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:48px;color:var(--muted);font-size:.76rem">No pieces found. <span style="color:var(--amber);cursor:pointer" onclick="openPublishModal()">Add one →</span></div>'; return; }
-  g.innerHTML = list.map(artCardHTML).join('');
+  const groups={};
+  list.forEach(p=>{ const k=hubCatKey(p); (groups[k]=groups[k]||[]).push(p); });
+  const keys=Object.keys(groups).sort((a,b)=>hubCatRank(a)-hubCatRank(b)||a.localeCompare(b));
+  g.innerHTML = keys.map(k=>`<div style="grid-column:1/-1;font-weight:700;font-size:.78rem;color:var(--ink);margin:14px 0 2px;padding-bottom:6px;border-bottom:1px solid var(--border)">${k} <span style="font-weight:400;color:var(--muted)">· ${groups[k].length}</span></div>`+groups[k].map(artCardHTML).join('')).join('');
 }
 
 function filterColl(f, btn) {
@@ -2873,11 +2889,12 @@ function openPieceModal(id) {
   const p = pieces.find(x=>x.id===id); if(!p) return;
   currentPieceId = id;
   document.getElementById('pm-img').src = p.image||'';
-  document.getElementById('pm-type').textContent = p.type;
-  document.getElementById('pm-title').textContent = p.title;
-  document.getElementById('pm-price').textContent = p.price?'$'+p.price:'Price on inquiry';
-  document.getElementById('pm-desc').textContent = p.description||'An original work by Cece. Certificate of authenticity included.';
-  document.getElementById('pm-dims').textContent = p.dimensions?'Dimensions: '+p.dimensions:'';
+  document.getElementById('pm-e-title').value = p.title||'';
+  document.getElementById('pm-e-type').value  = (p.type==='Decorative Urn'?'Memorial Piece':(p.type||''));
+  document.getElementById('pm-e-price').value = p.price||'';
+  document.getElementById('pm-e-dims').value  = p.dimensions||'';
+  document.getElementById('pm-e-mats').value  = p.materials||'';
+  document.getElementById('pm-e-desc').value  = p.description||'';
   document.getElementById('pm-status-btn').textContent = p.status==='sold'?'Mark as Available':'Mark as Sold';
   pmVariationsBuf = normVars(p);
   renderVarStrip('pm');
@@ -2885,6 +2902,70 @@ function openPieceModal(id) {
 }
 
 function closePieceModal() { document.getElementById('pieceModal').classList.remove('open'); currentPieceId=null; }
+
+// Save edited piece details to Supabase (syncs to the website). Cece reviews
+// the form (optionally pre-filled by the Curator) and clicks Save — nothing
+// writes to the live site until she does.
+async function savePieceEdits() {
+  const p = pieces.find(x=>x.id===currentPieceId); if(!p) return;
+  const upd = {
+    title:       document.getElementById('pm-e-title').value.trim(),
+    type:        document.getElementById('pm-e-type').value,
+    price:       document.getElementById('pm-e-price').value.trim(),
+    dimensions:  document.getElementById('pm-e-dims').value.trim(),
+    materials:   document.getElementById('pm-e-mats').value.trim(),
+    description: document.getElementById('pm-e-desc').value.trim()
+  };
+  if (!upd.title) { showToast('Add a title.','t-error'); return; }
+  if (!upd.type)  { showToast('Pick a category.','t-error'); return; }
+  try {
+    await sb.update('pieces', p.id, upd);
+    Object.assign(p, upd);
+    renderCollection(); refreshDash(); if (typeof populatePayPieceSel==='function') populatePayPieceSel();
+    showToast('✅ Piece updated — live on your website.','t-success');
+    closePieceModal();
+  } catch(e) { showToast('Error saving changes','t-error'); }
+}
+
+// The Curator (AI) reads THIS piece's photo and suggests title, category,
+// materials & description into the form. It only fills the fields — Cece
+// reviews and clicks "Save details" to publish. Needs the Anthropic key.
+async function curatePieceEdit() {
+  const p = pieces.find(x=>x.id===currentPieceId); if(!p) return;
+  if (!p.image) { showToast('This piece has no photo for the Curator to read.','t-error'); return; }
+  if (!(keys['anthropic-key'] || keys['iebc-api-key'])) { showToast('Add your Anthropic key in Connections to use the Curator.','t-amber'); return; }
+  const btn = document.getElementById('pm-curate-btn'); const label = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '🎨 Curating…';
+  const curator = AGENTS.find(a=>a.id==='curator');
+  const ALLOW = ['Resin Art','Painting','Drawing','Sculpture','Memorial Piece','Statement Panel','Seasonal Gift','Photography','Mixed Media'];
+  const cur = document.getElementById('pm-e-title').value.trim();
+  const prompt = `Look at this artwork photo and write gallery copy for it. Respond with ONLY minified JSON (no prose, no code fences) using these keys:
+"title": a short evocative name${cur ? ' (keep it close to "'+cur+'")' : ''};
+"category": the single best fit chosen from EXACTLY this list — ${ALLOW.join(', ')};
+"materials": a short materials phrase;
+"description": 2–3 sensory sentences in Cece's warm first-person voice.`;
+  const imgSrc = p.image.startsWith('data:')
+    ? { type:'base64', media_type:'image/jpeg', data:p.image.split(',')[1] }
+    : { type:'url', url:p.image };
+  try {
+    const txt = await askClaude({
+      system: curator.system + ' Respond with only the requested JSON.',
+      messages: [{ role:'user', content: [ { type:'image', source:imgSrc }, { type:'text', text:prompt } ] }],
+      maxTokens: 700
+    });
+    const obj = parseJsonLoose(txt);
+    if (!obj) throw new Error('Could not read the Curator response — try again.');
+    if (obj.title)       document.getElementById('pm-e-title').value = obj.title;
+    if (obj.materials)   document.getElementById('pm-e-mats').value  = obj.materials;
+    if (obj.description) document.getElementById('pm-e-desc').value  = obj.description;
+    if (obj.category) { const c = ALLOW.find(a=>a.toLowerCase()===String(obj.category).toLowerCase().trim()); if (c) document.getElementById('pm-e-type').value = c; }
+    showToast('🎨 The Curator filled in suggestions — review & Save details to publish.','t-success');
+  } catch(e) {
+    showToast('Curator: ' + (e.message || 'something went wrong — try again.'), 't-error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = label;
+  }
+}
 
 async function togglePieceStatus() {
   const p = pieces.find(x=>x.id===currentPieceId); if(!p) return;
