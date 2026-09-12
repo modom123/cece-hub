@@ -9,8 +9,14 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-12_0740 UTC
-  CHANGE: 2026-09-12_0740 — Keys now persist for good: every saved key is
+  LAST UPDATED: 2026-09-12_1929 UTC
+  CHANGE: 2026-09-12_1929 — Fixed the Curator (and all AI agents): the
+          Anthropic model was pinned to the deprecated "claude-sonnet-4-20250514",
+          which newer API keys can't access — that produced the "can't access
+          the model" error. Updated both call sites to the current
+          "claude-sonnet-5" (vision-capable). API errors are now also logged
+          to the browser console (raw text) for easier debugging.
+          2026-09-12_0740 — Keys now persist for good: every saved key is
           mirrored to this browser's localStorage as well as Supabase, loaded
           on start, and merged (never overwritten) by the team sync — so the
           Anthropic key stays set on every login and never needs re-entering.
@@ -2634,7 +2640,7 @@ async function askClaude({ system, messages, maxTokens }) {
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true'
       },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: maxTokens || 1500, system, messages })
+      body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: maxTokens || 1500, system, messages })
     });
   } catch(e) {
     throw new Error('Couldn\'t reach Anthropic — check your internet connection and try again.');
@@ -2642,6 +2648,7 @@ async function askClaude({ system, messages, maxTokens }) {
   if (!res.ok) {
     const raw = (await res.text()) || '';
     const low = raw.toLowerCase();
+    console.error('[Curator] Anthropic API error', res.status, raw);
     let msg;
     if (res.status === 401 || low.includes('invalid x-api-key') || low.includes('authentication'))
       msg = 'That Anthropic API key was rejected. Re-check it in Connections (it should start with "sk-ant-").';
@@ -4900,7 +4907,7 @@ async function cpSend() {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
         max_tokens: 1500,
         system: c.system,
         messages: history
