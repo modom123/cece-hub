@@ -9,8 +9,14 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-10_2000 UTC
-  CHANGE: 2026-09-10_1839 — Added Supabase Auth login gate (email +
+  LAST UPDATED: 2026-09-12_0000 UTC
+  CHANGE: 2026-09-12_0000 — Renamed all visible "Memorial Urn" terminology
+          to "Memorial Keepsake" across social captions, hashtag presets,
+          the funeral-home outreach template, the strategy post-type label,
+          the contact notes placeholder, and the AI agent prompts — matching
+          the website's "Memorial Keepsakes" splash and "Memorial Piece"
+          category. Internal ids (option value, strategy key) left as-is.
+          2026-09-10_1839 — Added Supabase Auth login gate (email +
           password). The hub requires a signed-in team account before
           the dashboard loads. Reached from the website's Team Login.
           2026-09-10_1918 — Renamed the "Decorative Urn" category to
@@ -1032,7 +1038,7 @@ tr:hover td{background:var(--bg)}
                     <option value="piece_photo">🖼 Finished Piece Photo</option>
                     <option value="carousel">📎 Before/During/After Carousel</option>
                     <option value="bts">🎥 Behind the Scenes</option>
-                    <option value="urn">🕊️ Memorial Piece Feature</option>
+                    <option value="urn">🕊️ Memorial Keepsake Feature</option>
                     <option value="sale">💰 New Piece For Sale</option>
                     <option value="story">📱 Story / Poll</option>
                   </select>
@@ -1634,7 +1640,7 @@ tr:hover td{background:var(--bg)}
       <div class="fg"><label class="flabel">Phone</label><input class="finput" id="c-phone" placeholder="(555) 000-0000"></div>
       <div class="fg"><label class="flabel">Heat Level</label><select class="fsel" id="c-heat"><option value="warm">Warm</option><option value="hot">Hot 🔥</option><option value="cold">Cold</option></select></div>
       <div class="fg"><label class="flabel">Source</label><input class="finput" id="c-src" placeholder="e.g. Instagram, Referral, Cold email"></div>
-      <div class="fg full"><label class="flabel">Notes</label><textarea class="ftarea" id="c-notes" placeholder="Interested in urns, met at art show..."></textarea></div>
+      <div class="fg full"><label class="flabel">Notes</label><textarea class="ftarea" id="c-notes" placeholder="Interested in keepsakes, met at art show..."></textarea></div>
     </div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeContactModal()">Cancel</button><button class="btn btn-amber" onclick="saveContact()">Save Contact</button></div>
   </div>
@@ -3330,7 +3336,7 @@ function buildCapTemplates() {
   const tpls = [
     {p:'📸 Instagram / Facebook',c:'#e4405f',body:`✨ Just finished this one and I cannot stop staring at it.\n\n"{TITLE}" — {TYPE}\nMaterials: {MATERIALS}\n\n💰 ${'{PRICE}'} — DM to purchase or link in bio\n\n🖤 One of a kind. No prints. No reprints. Ever.\n\n#cecethepiece #resinart #abstractart #originalart #artforsale #homedecor`},
     {p:'🎵 TikTok',c:'#010101',body:`Watch me make this 👇✨ #resintok #resinpour #satisfying #abstractart #cecethepiece #originalart #fyp #artforsale`},
-    {p:'🕊️ Memorial Urn',c:'#6b3fa0',body:`A one-of-a-kind handcrafted memorial urn — because your loved one deserves something as unique as they were.\n\nEvery urn made by hand in resin and glass. Custom colors and personal touches available.\n\n📩 hello@cecethepiece.com\n\n#memorialurn #cremationurn #handmadeurn #celebrationoflife #cecethepiece`},
+    {p:'🕊️ Memorial Keepsake',c:'#6b3fa0',body:`A one-of-a-kind handcrafted memorial keepsake — because your loved one deserves something as unique as they were.\n\nEvery keepsake made by hand in resin and glass. Custom colors and personal touches available.\n\n📩 hello@cecethepiece.com\n\n#memorialkeepsake #keepsake #handmadememorial #celebrationoflife #cecethepiece`},
     {p:'🏠 Interior Designer DM',c:'#0a9688',body:`Hi [Name]! I'm Cece — I create one-of-a-kind resin pieces perfect for statement walls and custom installations.\n\nI saw your work and thought my pieces might be a great fit for your clients.\n\nWould love to share my portfolio — any chance for a quick chat?\n\n— Cece | cecethepiece.com`},
   ];
   document.getElementById('soc-cap-list').innerHTML = tpls.map((t,i)=>`<div style="border:1.5px solid var(--border);border-radius:10px;overflow:hidden;background:var(--white)"><div style="padding:8px 13px;background:var(--bg);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;border-top:3px solid ${t.c}"><span style="font-size:.76rem;font-weight:700">${t.p}</span><button class="copy-btn" id="ctb${i}" onclick="cpText('${encodeURIComponent(t.body)}','ctb${i}')">Copy</button></div><div style="padding:11px 13px;font-size:.71rem;line-height:1.8;color:var(--ink2);white-space:pre-wrap">${t.body}</div></div>`).join('');
@@ -3340,7 +3346,7 @@ function buildHashtags() {
     {l:'Core Art',c:'var(--amber)',t:'#cecethepiece #originalart #handmadeart #artforsale #abstractart #contemporaryart #artcollector #buyart #artlovers #emergingartist'},
     {l:'Resin Specific',c:'var(--teal)',t:'#resinart #resinpour #resinartist #fluidart #pouringpaints #resinwork #resincrafts #resintok #epoxyart #liquidart #resindesign'},
     {l:'Home & Interior',c:'var(--violet)',t:'#homedecor #interiordesign #homedesign #modernhome #wallart #artwall #homeinspo #luxuryhome #decorinspo #homeaesthetic'},
-    {l:'Memorial / Urn',c:'#6b3fa0',t:'#memorialurn #cremationurn #handmadeurn #celebrationoflife #memorialgift #artisanurn #customurn #memorialart #tributepiece'},
+    {l:'Memorial / Keepsake',c:'#6b3fa0',t:'#memorialkeepsake #keepsake #handmadememorial #celebrationoflife #memorialgift #artisankeepsake #customkeepsake #memorialart #tributepiece'},
     {l:'Discovery',c:'var(--coral)',t:'#fyp #foryoupage #satisfying #satisfyingvideo #artwork #artofinstagram #artoftheday #handmade #shopsmall'},
     {l:'Buyer Targets',c:'var(--green)',t:'#interiordesigner #hoteldesign #officedecor #commercialdesign #artcurator #luxuryinteriors #designinspiration'},
   ];
@@ -3350,7 +3356,7 @@ function buildHashtags() {
 // ── EMAIL TEMPLATES ──
 const emailTpls = {
   designer:{badge:'Most Used',icon:'🏠',title:'Interior Designer',subject:'Original Art for Your Next Project — cecethepiece',body:`Hi [Designer's Name],\n\nI hope this finds you well! I'm Cece — an independent artist specializing in one-of-a-kind resin, glass, and mixed media pieces.\n\nI came across your work at [firm/Instagram] and thought my pieces could be a perfect fit for your clients' spaces.\n\nFor design professionals, I offer:\n• Custom commissions in any size, color palette, or material\n• Trade pricing (30% off retail)\n• Certificates of authenticity with every piece\n\nWould you have 15 minutes for a quick call?\n\nWith gratitude,\nCece\ncecethepiece | hello@cecethepiece.com`},
-  funeral:{badge:'Unique Niche',icon:'🕊️',title:'Funeral Home — Memorial Urns',subject:'Handcrafted Memorial Urns — Meaningful & One of a Kind',body:`Dear [Director's Name],\n\nMy name is Cece, and I create handcrafted resin memorial urns that offer families a truly personal way to honor their loved ones.\n\nFor funeral home partners:\n• Wholesale pricing (30% off retail)\n• Custom orders (2–3 week turnaround)\n• Sample pieces for your showroom\n• Price range: $200–$800 per urn\n\nI'd love to bring samples by or send photos. Would you be open to a brief conversation?\n\nWith care,\nCece\ncecethepiece | hello@cecethepiece.com`},
+  funeral:{badge:'Unique Niche',icon:'🕊️',title:'Funeral Home — Memorial Keepsakes',subject:'Handcrafted Memorial Keepsakes — Meaningful & One of a Kind',body:`Dear [Director's Name],\n\nMy name is Cece, and I create handcrafted resin memorial keepsakes that offer families a truly personal way to honor their loved ones.\n\nFor funeral home partners:\n• Wholesale pricing (30% off retail)\n• Custom orders (2–3 week turnaround)\n• Sample pieces for your showroom\n• Price range: $200–$800 per keepsake\n\nI'd love to bring samples by or send photos. Would you be open to a brief conversation?\n\nWith care,\nCece\ncecethepiece | hello@cecethepiece.com`},
   collector:{badge:'',icon:'🖼',title:'Art Collector',subject:'Original One-of-a-Kind Works — cecethepiece',body:`Hello [Collector's Name],\n\nI'm Cece — an independent artist working in resin, glass, and mixed media. My work is rooted in abstraction, texture, and the unpredictable beauty of materials in motion.\n\nEvery piece I create is completely original. I don't reproduce. I don't print. When you own a cecethepiece work, you own something that exists nowhere else in the world.\n\nI'd love to share my current collection with you.\n\nBest,\nCece\ncecethepiece | hello@cecethepiece.com`},
   corporate:{badge:'',icon:'🏢',title:'Corporate / Hotel',subject:'Original Art for Your Space — cecethepiece',body:`Hello [Contact Name],\n\nI'm Cece — I make one-of-a-kind resin and mixed media pieces that work beautifully in offices, hotel lobbies, restaurants, and commercial environments.\n\nFor commercial clients:\n• Large-format custom commissions\n• Multiple pieces for cohesive installations\n• Commercial licensing and documentation\n\nWould you be open to a quick call or portfolio email?\n\nBest,\nCece\ncecethepiece | hello@cecethepiece.com`},
   homedecor:{badge:'',icon:'✨',title:'Home Decor / DM Script',subject:"Original Art You'll Love 🎨",body:`Hey [Name]!\n\nI noticed you love home decor and I just had to reach out.\n\nI'm Cece — I make one-of-a-kind resin and abstract art pieces made to LIVE in your space. No prints. No mass production. Pure handcrafted originals.\n\nEvery pour is different — that's the magic ✨\n\nDM me or check the link in bio!\n\n— Cece 🖤\n@cecethepiece`},
@@ -3447,7 +3453,7 @@ const POST_TYPES = {
   piece_photo:{ label:'Finished Piece Photo', icon:'🖼' },
   carousel:   { label:'Before/During/After Carousel', icon:'📎' },
   bts:        { label:'Behind the Scenes', icon:'🎥' },
-  urn:        { label:'Memorial Urn Feature', icon:'🕊️' },
+  urn:        { label:'Memorial Keepsake Feature', icon:'🕊️' },
   sale:       { label:'New Piece For Sale', icon:'💰' },
   story:      { label:'Story / Poll', icon:'📱' },
   groups:     { label:'Share to Art Groups', icon:'👥' },
@@ -4547,12 +4553,12 @@ const CP_TEAM = [
    system:'You are Alexander Wright, VP Market Intelligence at IEBC. You advise Cece at cecethepiece on market positioning, competitor analysis, and industry trends in the art and creative market. Sign responses: — Alexander Wright, VP Market Intelligence, IEBC.'},
   {id:'samantha',ini:'SL',name:'Samantha Lee',title:'Dir. Global Brand AI',dept:'Strategy & Growth',color:'#1D4ED8',
    bio:'Brand architecture, tone-of-voice, and positioning across all your channels.',
-   prompts:['Review my Instagram bio for brand consistency','Help me define the cecethepiece brand voice','Write a tagline for memorial urns','How should I position my brand for interior designers?'],
+   prompts:['Review my Instagram bio for brand consistency','Help me define the cecethepiece brand voice','Write a tagline for memorial keepsakes','How should I position my brand for interior designers?'],
    system:'You are Samantha Lee, Director of Global Brand AI at IEBC. You help Cece at cecethepiece build a strong, consistent brand voice across Instagram, TikTok, her website, and email. Be sophisticated and articulate. Sign responses: — Samantha Lee, Dir. Global Brand AI, IEBC.'},
   {id:'benjamin',ini:'BM',name:'Benjamin Mercer',title:'Head of Positioning',dept:'Strategy & Growth',color:'#1D4ED8',
    bio:'Go-to-market strategy, blue ocean positioning, and narrative design.',
-   prompts:['How do I differentiate cecethepiece in a crowded art market?','Write my go-to-market strategy for urns','What is my unique positioning statement?','How do I own the memorial urn niche?'],
-   system:'You are Benjamin Mercer, Head of Positioning at IEBC. You help Cece at cecethepiece find market gaps and dominate them. She makes resin art, memorial urns, and custom commissions. Be aggressive and strategic. Sign responses: — Benjamin Mercer, Head of Positioning, IEBC.'},
+   prompts:['How do I differentiate cecethepiece in a crowded art market?','Write my go-to-market strategy for keepsakes','What is my unique positioning statement?','How do I own the memorial keepsake niche?'],
+   system:'You are Benjamin Mercer, Head of Positioning at IEBC. You help Cece at cecethepiece find market gaps and dominate them. She makes resin art, memorial keepsakes, and custom commissions. Be aggressive and strategic. Sign responses: — Benjamin Mercer, Head of Positioning, IEBC.'},
   {id:'evelyn',ini:'ES',name:'Dr. Evelyn Sterling',title:'Chief Operating Officer',dept:'Operations',color:'#0F766E',
    bio:'Eliminate bottlenecks, automate workflows, and build systems that scale.',
    prompts:['What is slowing my art business down?','Help me automate my commission process','How do I scale to more pieces per month?','Build me an SOP for publishing a new piece'],
@@ -4563,7 +4569,7 @@ const CP_TEAM = [
    system:'You are Katerina Rostova, Head of Process Automation at IEBC. You help Cece at cecethepiece automate manual processes — commission tracking, rental bookings, payment follow-ups, social posting. Sign responses: — Katerina Rostova, Head of Process Automation, IEBC.'},
   {id:'eleanor',ini:'EW',name:'Eleanor Wei',title:'Chief Financial Officer',dept:'Finance',color:'#047857',
    bio:'Capital allocation, financial modeling, and pricing strategy.',
-   prompts:['Review my pricing strategy for original pieces','How should I price memorial urns?','Help me model my income streams','How do I calculate profitability per piece?'],
+   prompts:['Review my pricing strategy for original pieces','How should I price memorial keepsakes?','Help me model my income streams','How do I calculate profitability per piece?'],
    system:'You are Eleanor Wei, CFO at IEBC. You help Cece at cecethepiece optimize her pricing, understand her income streams (sales, rentals, commissions), and model her financial health. Be specific and data-driven. Sign responses: — Eleanor Wei, CFO, IEBC.'},
   {id:'sofia',ini:'SR',name:'Sofia Rossi',title:'Dir. Finance Automation',dept:'Finance',color:'#047857',
    bio:'Automate invoicing, payment follow-ups, and bookkeeping.',
@@ -4579,12 +4585,12 @@ const CP_TEAM = [
    system:'You are Veronica Chase, VP Enterprise Sales at IEBC. You help Cece at cecethepiece close B2B deals — hotels, restaurants, corporate offices, interior designers. Help her handle objections and build winning proposals. Sign responses: — Veronica Chase, VP Enterprise Sales, IEBC.'},
   {id:'isabella',ini:'IC',name:'Isabella Cruz',title:'VP Omnichannel Outreach',dept:'Outreach',color:'#B45309',
    bio:'Automated outreach campaigns and copywriting that converts.',
-   prompts:['Write a cold email sequence for interior designers','How do I reach funeral homes about urns?','Review my Instagram caption strategy','Build me a multi-channel outreach campaign'],
-   system:'You are Isabella Cruz, VP Omnichannel Outreach at IEBC. You help Cece at cecethepiece build outreach campaigns — email sequences for interior designers, cold DMs, funeral home outreach for urns, and social media campaigns. Write actual copy when asked. Sign responses: — Isabella Cruz, VP Omnichannel Outreach, IEBC.'},
+   prompts:['Write a cold email sequence for interior designers','How do I reach funeral homes about keepsakes?','Review my Instagram caption strategy','Build me a multi-channel outreach campaign'],
+   system:'You are Isabella Cruz, VP Omnichannel Outreach at IEBC. You help Cece at cecethepiece build outreach campaigns — email sequences for interior designers, cold DMs, funeral home outreach for keepsakes, and social media campaigns. Write actual copy when asked. Sign responses: — Isabella Cruz, VP Omnichannel Outreach, IEBC.'},
   {id:'maxwell',ini:'MH',name:'Maxwell Hayes',title:'Dir. Persona Development',dept:'Outreach',color:'#B45309',
    bio:'Psychological profiling of your buyers. Know them before they know you.',
-   prompts:['Who is my ideal interior designer buyer?','Build a persona for memorial urn buyers','What motivates art collectors to buy?','How do I personalize outreach by buyer type?'],
-   system:'You are Maxwell Hayes, Director of Persona Development at IEBC. You help Cece at cecethepiece understand her buyers — interior designers, art collectors, memorial urn buyers, corporate clients, home decor enthusiasts. Build deep psychological profiles. Sign responses: — Maxwell Hayes, Dir. Persona Development, IEBC.'},
+   prompts:['Who is my ideal interior designer buyer?','Build a persona for memorial keepsake buyers','What motivates art collectors to buy?','How do I personalize outreach by buyer type?'],
+   system:'You are Maxwell Hayes, Director of Persona Development at IEBC. You help Cece at cecethepiece understand her buyers — interior designers, art collectors, memorial keepsake buyers, corporate clients, home decor enthusiasts. Build deep psychological profiles. Sign responses: — Maxwell Hayes, Dir. Persona Development, IEBC.'},
   {id:'clara',ini:'CD',name:'Clara Dubois',title:'Global Head Lead Gen',dept:'Outreach',color:'#B45309',
    bio:'Fill your pipeline with pre-qualified, high-intent buyers.',
    prompts:['How do I generate more leads for my art?','Build a lead generation strategy for cecethepiece','What channels should I focus on for lead gen?','How do I find interior designers to pitch?'],
