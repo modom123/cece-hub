@@ -9,8 +9,16 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-12_0000 UTC
-  CHANGE: 2026-09-12_0000 — Renamed all visible "Memorial Urn" terminology
+  LAST UPDATED: 2026-09-12_0740 UTC
+  CHANGE: 2026-09-12_0740 — Keys now persist for good: every saved key is
+          mirrored to this browser's localStorage as well as Supabase, loaded
+          on start, and merged (never overwritten) by the team sync — so the
+          Anthropic key stays set on every login and never needs re-entering.
+          Save toast now reports honestly (synced to team vs saved on device).
+          Curator errors are now plain-language & actionable (rejected key,
+          out of credit, rate limit, model access) instead of raw API text,
+          and the piece-edit Curator uses each image's real media type.
+          2026-09-12_0000 — Renamed all visible "Memorial Urn" terminology
           to "Memorial Keepsake" across social captions, hashtag presets,
           the funeral-home outreach template, the strategy post-type label,
           the contact notes placeholder, and the AI agent prompts — matching
@@ -1967,6 +1975,18 @@ const CONFIGURED = !!(SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('pl
 // A signed-in team account is required before the hub loads. The
 // user's access token (not the anon key) authorizes every data call.
 const AUTH_STORE = 'cecehub.session';
+// Keys are saved to Supabase (so the whole team shares them) AND mirrored to
+// this browser's localStorage — so once a key is set it stays set on every
+// login, even if the Supabase write is blocked or the hub is offline.
+const KEYS_STORE = 'cecehub.keys';
+function loadKeysLocal() {
+  try { return JSON.parse(localStorage.getItem(KEYS_STORE) || '{}') || {}; }
+  catch(e) { return {}; }
+}
+function saveKeysLocal() {
+  try { localStorage.setItem(KEYS_STORE, JSON.stringify(keys)); return true; }
+  catch(e) { return false; }
+}
 let session = null;   // { access_token, refresh_token, expires_at, user }
 
 function loadSession() {
@@ -2063,7 +2083,7 @@ function consumeHandoffSession() {
     history.replaceState(null, '', location.pathname + location.search);
 }
 
-let pieces = [], contacts = [], keys = {};
+let pieces = [], contacts = [], keys = loadKeysLocal();
 let crmFilter = 'all', currentPieceId = null, imgData = null;
 let pollInterval = null;
 
@@ -2148,8 +2168,11 @@ async function loadAll() {
 
   try {
     const s = await sb.query('settings', { select: '*', eq: { id: 'keys' } });
-    if (s && s[0]) keys = s[0].data || {};
-  } catch(e) { /* silent */ }
+    // Merge team keys from Supabase over anything already saved on this
+    // device — never let an empty/blocked read wipe a locally-saved key.
+    if (s && s[0] && s[0].data) keys = { ...keys, ...s[0].data };
+    saveKeysLocal();
+  } catch(e) { /* silent — locally-saved keys remain */ }
 
   refreshAll();
 
@@ -2601,17 +2624,37 @@ async function importCatalog() {
 async function askClaude({ system, messages, maxTokens }) {
   const apiKey = keys['anthropic-key'] || keys['iebc-api-key'] || '';
   if (!apiKey) { const e = new Error('NO_KEY'); e.code = 'NO_KEY'; throw e; }
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: maxTokens || 1500, system, messages })
-  });
-  if (!res.ok) throw new Error((await res.text()).slice(0, 240));
+  let res;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: maxTokens || 1500, system, messages })
+    });
+  } catch(e) {
+    throw new Error('Couldn\'t reach Anthropic — check your internet connection and try again.');
+  }
+  if (!res.ok) {
+    const raw = (await res.text()) || '';
+    const low = raw.toLowerCase();
+    let msg;
+    if (res.status === 401 || low.includes('invalid x-api-key') || low.includes('authentication'))
+      msg = 'That Anthropic API key was rejected. Re-check it in Connections (it should start with "sk-ant-").';
+    else if (low.includes('credit balance') || low.includes('billing') || low.includes('quota'))
+      msg = 'Your Anthropic account is out of credit. Add billing at console.anthropic.com, then try again.';
+    else if (res.status === 429)
+      msg = 'Anthropic is rate-limiting right now — wait a moment and try again.';
+    else if (res.status === 404 || low.includes('model'))
+      msg = 'This Anthropic key can\'t access the AI model. Check the key\'s plan at console.anthropic.com.';
+    else
+      msg = raw.slice(0, 200) || ('Anthropic returned an error (' + res.status + ').');
+    throw new Error(msg);
+  }
   const data = await res.json();
   return data.content?.[0]?.text || '';
 }
@@ -2988,8 +3031,9 @@ async function curatePieceEdit() {
 "category": the single best fit chosen from EXACTLY this list — ${ALLOW.join(', ')};
 "materials": a short materials phrase;
 "description": 2–3 sensory sentences in Cece's warm first-person voice.`;
-  const imgSrc = p.image.startsWith('data:')
-    ? { type:'base64', media_type:'image/jpeg', data:p.image.split(',')[1] }
+  const mediaMatch = p.image.match(/^data:([^;]+);base64,/);
+  const imgSrc = mediaMatch
+    ? { type:'base64', media_type:mediaMatch[1], data:p.image.split(',')[1] }
     : { type:'url', url:p.image };
   try {
     const txt = await askClaude({
@@ -3301,15 +3345,22 @@ async function saveKey(service) {
     const v=document.getElementById('venmo-handle').value.trim(),c=document.getElementById('cashapp-handle').value.trim();
     keys['venmo-handle']=v; keys['cashapp-handle']=c; setConnected('venmo','venmo-dot2','venmo-status2','✅ Saved');
   }
-  await saveKeysToSupabase();
-  showToast('✅ Saved and synced to all team members!','t-success');
+  const synced = await saveKeysToSupabase();
+  loadSavedKeys();
+  showToast(synced
+    ? '✅ Saved & synced to your whole team — you won\'t need to enter it again.'
+    : '✅ Saved on this device — you won\'t need to enter it again here.','t-success');
 }
 
+// Persist keys locally (always) and to Supabase (when possible). Returns true
+// only if the team-wide Supabase sync actually succeeded.
 async function saveKeysToSupabase() {
-  if (!CONFIGURED) return;
+  saveKeysLocal();
+  if (!CONFIGURED) return false;
   try {
     await sb.upsert('settings', { id:'keys', data: keys }, 'id');
-  } catch(e) { console.warn('Keys save error:', e); }
+    return true;
+  } catch(e) { console.warn('Keys sync error:', e); return false; }
 }
 
 function setConnected(cardId, dotId, statusId, msg) {
