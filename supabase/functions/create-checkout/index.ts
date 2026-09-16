@@ -92,15 +92,21 @@ Deno.serve(async (req) => {
     }
 
     // ─────────────────────────── ARTWORK PURCHASE ─────────────────────────
+    // A piece with a `deposit` set is a CUSTOM / commission piece: Buy Now
+    // charges the deposit (down payment) and the balance is invoiced later,
+    // once Cece confirms the final price. Otherwise the full price is charged.
     if (!piece_id) return json({ error: "Missing piece_id or class_id" }, 400);
 
-    const r = await db(`pieces?id=eq.${encodeURIComponent(piece_id)}&select=id,title,price,status`);
+    const r = await db(`pieces?id=eq.${encodeURIComponent(piece_id)}&select=id,title,price,status,deposit`);
     const rows = await r.json();
     const piece = Array.isArray(rows) ? rows[0] : null;
     if (!piece) return json({ error: "Piece not found" }, 404);
     if (piece.status === "sold") return json({ error: "This piece has already sold." }, 409);
 
-    const amount = Math.round(parseFloat(piece.price) * 100);
+    const priceC   = Math.round((parseFloat(piece.price) || 0) * 100);
+    const depositC = Math.round((parseFloat(piece.deposit) || 0) * 100);
+    const isDeposit = depositC > 0 && (priceC === 0 || depositC < priceC);
+    const amount = isDeposit ? depositC : priceC;
     if (!amount || amount < 50) return json({ error: "This piece has no price set — please inquire." }, 400);
 
     const session = await stripe.checkout.sessions.create({
@@ -110,23 +116,30 @@ Deno.serve(async (req) => {
         price_data: {
           currency: "usd",
           unit_amount: amount,
-          product_data: { name: piece.title || "cecespieces original" },
+          product_data: { name: isDeposit ? `Deposit — ${piece.title} (custom)` : (piece.title || "cecespieces original") },
         },
       }],
-      // Collect the buyer's shipping address for the physical artwork.
-      shipping_address_collection: { allowed_countries: ["US", "CA"] },
-      success_url: `${SITE_URL}/?checkout=success`,
+      // Full purchases collect shipping now; deposits collect it with the balance.
+      ...(isDeposit ? {} : { shipping_address_collection: { allowed_countries: ["US", "CA"] } }),
+      success_url: `${SITE_URL}/?checkout=success${isDeposit ? "&kind=deposit" : ""}`,
       cancel_url: `${SITE_URL}/?checkout=cancel`,
-      metadata: { piece_id: String(piece_id) },
+      metadata: { piece_id: String(piece_id), kind: isDeposit ? "deposit" : "full" },
     });
 
-    // Best-effort: log a pending purchase so it shows in the hub's Orders.
+    // Log a pending order so it shows in the hub. For a deposit, record the
+    // deposit paid and the balance still due so Cece can confirm & invoice it.
+    const balanceStr = isDeposit ? ((priceC - depositC) / 100).toFixed(2) : null;
     db(`orders`, {
       method: "POST", headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
-        piece_id, piece_title: piece.title, price: piece.price,
-        type: "purchase", status: "pending", source: "stripe checkout",
-        notes: `Stripe session ${session.id}`,
+        piece_id, piece_title: piece.title,
+        price: isDeposit ? piece.deposit : piece.price,
+        type: isDeposit ? "deposit" : "purchase",
+        status: isDeposit ? "deposit-paid-pending" : "pending",
+        source: "stripe checkout",
+        notes: isDeposit
+          ? `Deposit $${piece.deposit} paid · balance $${balanceStr} due on confirmation · Stripe session ${session.id}`
+          : `Stripe session ${session.id}`,
       }),
     }).catch(() => {});
 

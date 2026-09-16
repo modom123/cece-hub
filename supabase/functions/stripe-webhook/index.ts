@@ -63,9 +63,35 @@ Deno.serve(async (req) => {
     // ─── Artwork purchased ───
     const pieceId = s.metadata?.piece_id;
     if (pieceId) {
-      await patch(`pieces?id=eq.${encodeURIComponent(pieceId)}`, { status: "sold" });
-      await patch(`orders?notes=like.*${s.id}*`, { status: "confirmed", customer_name: name, customer_email: email });
+      if (s.metadata?.kind === "deposit") {
+        // Custom piece: deposit paid. Reserve the piece (not sold yet) and flip
+        // its order to deposit-paid so Cece can confirm the final price & invoice
+        // the balance. Store the customer so we can email/invoice them.
+        await patch(`pieces?id=eq.${encodeURIComponent(pieceId)}`, { status: "reserved" });
+        await patch(`orders?notes=like.*${s.id}*`, { status: "deposit-paid", customer_name: name, customer_email: email });
+      } else {
+        await patch(`pieces?id=eq.${encodeURIComponent(pieceId)}`, { status: "sold" });
+        await patch(`orders?notes=like.*${s.id}*`, { status: "confirmed", customer_name: name, customer_email: email });
+      }
     }
   }
+
+  // ─── Balance invoice paid (custom piece) ───
+  // The hub sends a Stripe invoice for the remaining balance; when the customer
+  // pays it, mark the piece sold and confirm its deposit order.
+  if (event.type === "invoice.paid" || event.type === "invoice.payment_succeeded") {
+    const inv = event.data.object as Stripe.Invoice;
+    const pieceId = (inv.metadata as Record<string, string> | null)?.piece_id;
+    const email = inv.customer_email ?? null;
+    if (pieceId) {
+      await patch(`pieces?id=eq.${encodeURIComponent(pieceId)}`, { status: "sold" });
+      await patch(`orders?piece_id=eq.${encodeURIComponent(pieceId)}&type=eq.deposit`, {
+        status: "confirmed",
+        notes: `Balance invoice ${inv.id} paid in full`,
+        ...(email ? { customer_email: email } : {}),
+      });
+    }
+  }
+
   return new Response("ok", { status: 200 });
 });

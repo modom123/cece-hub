@@ -64,6 +64,26 @@ After a successful payment this marks a **piece sold** (and confirms its order),
 or **confirms a class enrollment** and drops the live seat count — automatically
 visible in the hub, with the buyer's name, email and (for art) shipping address.
 
+## 5b. Custom pieces — deposit now, balance invoiced later
+
+Some pieces are **custom / commissions**: the buyer pays a **deposit** up front,
+and the **balance** is billed once you confirm the final piece. To enable this:
+
+1. In the hub, give the piece a **Deposit** (Publish form or the piece's
+   ✏️ edit). Its **Buy Now** button becomes **"Pay Deposit — $X"** and the
+   website explains the balance is invoiced on confirmation.
+2. When the deposit is paid, the piece is marked **reserved** and a **deposit**
+   order appears in **Website Orders** (filter: *Deposits*).
+3. Open that order → **adjust the Final price** if it changed → **Confirm &
+   email balance invoice**. This deploys a third function:
+   ```
+   supabase functions deploy send-balance-invoice
+   ```
+   It emails the customer a **Stripe invoice** for `final price − deposit`.
+4. Add the **`invoice.paid`** event to your Stripe webhook endpoint (alongside
+   `checkout.session.completed`). When they pay the invoice, the piece is
+   marked **sold** and the order **confirmed** automatically.
+
 ## 6. Test
 Use Stripe **test mode** first (test keys + card `4242 4242 4242 4242`, any future
 date/CVC). Buy a piece → you land back on the site with a thank-you → the hub
