@@ -9,8 +9,13 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-16_0305 UTC
-  CHANGE: 2026-09-16_0305 — The hub can now run the whole Academy: a full Class
+  LAST UPDATED: 2026-09-16_0340 UTC
+  CHANGE: 2026-09-16_0340 — Payments now cover classes too. The create-checkout
+          and stripe-webhook Edge Functions were extended to charge for an
+          Academy class (price read from the DB), confirm the enrollment, and
+          decrement a live class's seats on payment — alongside the existing
+          artwork checkout. See supabase/functions/STRIPE-SETUP.md.
+          2026-09-16_0305 — The hub can now run the whole Academy: a full Class
           Editor (+ New Class / Edit full) creates and edits classes end to end
           — title, level, format, price, cover image (upload or URL), blurb,
           description, live date/seats/join link, supply list, and a lessons

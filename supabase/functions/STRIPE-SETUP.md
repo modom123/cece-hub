@@ -1,7 +1,17 @@
-# Stripe Checkout setup (cecepieces)
+# Stripe Checkout setup (cecespieces)
 
-Real "Buy Now" buttons that take card payments. Two small Edge Functions do the
-work; you deploy them once and paste a couple of keys. ~20 minutes.
+Real card payments for **both artwork and Academy classes**. Two small Edge
+Functions do the work; you deploy them once and paste a couple of keys. ~20 min.
+
+- **Buy art** → the piece's price is charged, shipping address collected, the
+  piece is marked **sold** and the order **confirmed** in the hub.
+- **Buy a class** → the class price is charged, the enrollment is **confirmed**
+  in the hub roster, a live class's remaining **seats** tick down, and the
+  student's class appears in **My Classroom** automatically.
+
+Both read the price from the database inside the function, so amounts can't be
+tampered with in the browser. (Classes need the `classes` and
+`class_enrollments` tables — run `migrations/classes_*.sql` first.)
 
 ## What you need
 - A **Stripe account** with a bank connected (stripe.com → activate payments).
@@ -16,7 +26,7 @@ supabase link --project-ref tssicoxzxcfijdlvtpqm
 ## 2. Set the secrets (from Stripe → Developers → API keys)
 ```
 supabase secrets set STRIPE_SECRET_KEY=sk_live_xxxxxxxxxxxx
-supabase secrets set SITE_URL=https://cecepieces.com        # your live website URL
+supabase secrets set SITE_URL=https://cecespieces.com       # your live website URL
 ```
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically — don't set them.
 
@@ -50,9 +60,9 @@ Then in **Stripe → Developers → Webhooks → Add endpoint**:
 ```
 supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxx
 ```
-After a successful payment this marks the piece **sold** and flips the order to
-**confirmed** with the buyer's name, email and shipping address — automatically
-visible in the hub.
+After a successful payment this marks a **piece sold** (and confirms its order),
+or **confirms a class enrollment** and drops the live seat count — automatically
+visible in the hub, with the buyer's name, email and (for art) shipping address.
 
 ## 6. Test
 Use Stripe **test mode** first (test keys + card `4242 4242 4242 4242`, any future

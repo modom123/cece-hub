@@ -1,12 +1,13 @@
 // create-checkout — Supabase Edge Function
 // ---------------------------------------------------------------------------
-// Creates a Stripe Checkout Session for one cecepieces artwork and returns its
-// URL. The PRICE IS READ FROM THE DATABASE (service role), never trusted from
-// the browser, so a visitor can't tamper with the amount. Records a pending
-// "purchase" order for the hub; the stripe-webhook function confirms it on pay.
+// Creates a Stripe Checkout Session for either a cecespieces ARTWORK (piece_id)
+// or an ACADEMY CLASS (class_id) and returns its URL. The PRICE IS ALWAYS READ
+// FROM THE DATABASE (service role), never trusted from the browser, so a visitor
+// can't tamper with the amount. It records a pending order (and, for a class, a
+// pending enrollment) for the hub; the stripe-webhook function confirms it on pay.
 //
 // Deploy:  supabase functions deploy create-checkout
-// Secrets: supabase secrets set STRIPE_SECRET_KEY=sk_live_...  SITE_URL=https://cecepieces.com
+// Secrets: supabase secrets set STRIPE_SECRET_KEY=sk_live_...  SITE_URL=https://cecespieces.com
 //          (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided automatically)
 // ---------------------------------------------------------------------------
 import Stripe from "npm:stripe@17";
@@ -14,7 +15,7 @@ import Stripe from "npm:stripe@17";
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-06-20" });
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const SITE_URL     = (Deno.env.get("SITE_URL") || "https://cecepieces.com").replace(/\/$/, "");
+const SITE_URL     = (Deno.env.get("SITE_URL") || "https://cecespieces.com").replace(/\/$/, "");
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -24,19 +25,76 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
+const db = (path: string, init?: RequestInit) =>
+  fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...init,
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json", ...(init?.headers || {}) },
+  });
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
-    const { piece_id } = await req.json();
-    if (!piece_id) return json({ error: "Missing piece_id" }, 400);
+    const body = await req.json().catch(() => ({}));
+    const { piece_id, class_id, student_name, student_email } = body;
 
-    // Authoritative piece data from the DB (service role bypasses RLS).
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/pieces?id=eq.${encodeURIComponent(piece_id)}&select=id,title,price,status`,
-      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
-    );
+    // ─────────────────────────── CLASS PURCHASE ───────────────────────────
+    if (class_id) {
+      const r = await db(`classes?id=eq.${encodeURIComponent(class_id)}&select=id,title,price,active,type,seats_left`);
+      const rows = await r.json();
+      const cls = Array.isArray(rows) ? rows[0] : null;
+      if (!cls) return json({ error: "Class not found" }, 404);
+      if (cls.active === false) return json({ error: "This class isn't open for enrollment right now." }, 409);
+      if (cls.type === "live" && cls.seats_left != null && Number(cls.seats_left) <= 0)
+        return json({ error: "This live class is full — join the waitlist." }, 409);
+
+      const amount = Math.round(parseFloat(cls.price) * 100);
+      if (!amount || amount < 50) return json({ error: "This class has no price set — please inquire." }, 400);
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        line_items: [{
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: amount,
+            product_data: { name: `${cls.title} — cecespieces Academy` },
+          },
+        }],
+        customer_email: student_email || undefined,
+        success_url: `${SITE_URL}/?checkout=success&type=class`,
+        cancel_url: `${SITE_URL}/?checkout=cancel&type=class`,
+        metadata: { class_id: String(class_id), student_name: student_name || "", student_email: student_email || "" },
+      });
+
+      // Pending enrollment (so the hub roster + student classroom see it) …
+      db(`class_enrollments`, {
+        method: "POST", headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({
+          class_id, class_title: cls.title, class_type: cls.type, price: cls.price,
+          student_name: student_name || null, student_email: student_email || null,
+          status: "pending", source: "stripe checkout", notes: `Stripe session ${session.id}`,
+        }),
+      }).catch(() => {});
+      // … and a pending order for the CRM / Sales agent.
+      db(`orders`, {
+        method: "POST", headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({
+          piece_title: `${cls.title} (Class Enrollment)`, price: cls.price,
+          type: "class-enrollment", status: "pending", source: "stripe checkout",
+          customer_name: student_name || null, customer_email: student_email || null,
+          notes: `Stripe session ${session.id}`,
+        }),
+      }).catch(() => {});
+
+      return json({ url: session.url });
+    }
+
+    // ─────────────────────────── ARTWORK PURCHASE ─────────────────────────
+    if (!piece_id) return json({ error: "Missing piece_id or class_id" }, 400);
+
+    const r = await db(`pieces?id=eq.${encodeURIComponent(piece_id)}&select=id,title,price,status`);
     const rows = await r.json();
     const piece = Array.isArray(rows) ? rows[0] : null;
     if (!piece) return json({ error: "Piece not found" }, 404);
@@ -52,7 +110,7 @@ Deno.serve(async (req) => {
         price_data: {
           currency: "usd",
           unit_amount: amount,
-          product_data: { name: piece.title || "cecepieces original" },
+          product_data: { name: piece.title || "cecespieces original" },
         },
       }],
       // Collect the buyer's shipping address for the physical artwork.
@@ -63,9 +121,8 @@ Deno.serve(async (req) => {
     });
 
     // Best-effort: log a pending purchase so it shows in the hub's Orders.
-    fetch(`${SUPABASE_URL}/rest/v1/orders`, {
-      method: "POST",
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    db(`orders`, {
+      method: "POST", headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
         piece_id, piece_title: piece.title, price: piece.price,
         type: "purchase", status: "pending", source: "stripe checkout",
