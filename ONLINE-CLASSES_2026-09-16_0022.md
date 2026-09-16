@@ -49,6 +49,12 @@ extended at any time.
   **price** field, a **type** selector, and — for live workshops — a
   **date/time**, **seats**, and a **join / stream link** (Zoom, Meet, YouTube,
   Twitch). **Save** upserts to Supabase and the website updates within seconds.
+- **Full Class Editor** (**+ New Class** / **✏️ Edit full**): build or edit a
+  class end to end — title, level, format, price, duration, cover image
+  (upload or URL), short blurb, full description, live date/seats/join link,
+  the supply list, and a **lessons builder** where each lesson has a title,
+  duration, free-preview flag and a video link (YouTube/Vimeo/Twitch embed in
+  the classroom; Zoom/Meet become a Join button). Classes can be **deleted**.
 - **Add the 4 starter classes**: one click seeds the ladder above.
 - **Student Bookings**: lists website enrollments, lets Cece **book a student
   by hand** (phone / gift / private group), mark them **confirmed/paid** or

@@ -9,8 +9,16 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-16_0230 UTC
-  CHANGE: 2026-09-16_0230 — Removed the supply-kit field from class enrollments
+  LAST UPDATED: 2026-09-16_0305 UTC
+  CHANGE: 2026-09-16_0305 — The hub can now run the whole Academy: a full Class
+          Editor (+ New Class / Edit full) creates and edits classes end to end
+          — title, level, format, price, cover image (upload or URL), blurb,
+          description, live date/seats/join link, supply list, and a lessons
+          builder where each lesson takes a title, duration, free-preview flag
+          and a video link (YouTube/Vimeo/Twitch play inline in the classroom;
+          Zoom/Meet show a Join button). Classes can also be deleted. Saving
+          upserts to the `classes` table so the website reflects it live.
+          2026-09-16_0230 — Removed the supply-kit field from class enrollments
           (kits are not supplied) — dropped from the Book-a-Student form and the
           classes schema.
           2026-09-16_0140 — Fixed "Auto-create color variations": it now sets
@@ -940,7 +948,8 @@ tr:hover td{background:var(--bg)}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-ghost" id="cls-seed-btn" onclick="seedDefaultClasses()">✨ Add the 4 starter classes</button>
-          <button class="btn btn-amber" onclick="openEnrollStudentModal()">+ Book a Student</button>
+          <button class="btn btn-amber" onclick="openClassEditor()">+ New Class</button>
+          <button class="btn btn-ghost" onclick="openEnrollStudentModal()">+ Book a Student</button>
         </div>
       </div>
       <div class="rental-stats">
@@ -2535,6 +2544,7 @@ function renderClassCatalog(){
       </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
         <button class="btn btn-ghost btn-xs" onclick="previewClassOnSite()">↗ View on site</button>
+        <button class="btn btn-ghost btn-xs" onclick="openClassEditor('${id}')">✏️ Edit full</button>
         <button class="btn btn-amber btn-xs" onclick="saveClassRow('${id}')">💾 Save</button>
       </div>
     </div>`;
@@ -2655,6 +2665,131 @@ async function saveManualEnrollment(){
   document.getElementById('cp-overlay-enroll').classList.remove('open');
   showToast('🎓 Student booked','t-success');
   renderClassEnrollments(); renderClassStats();
+}
+
+// ── FULL CLASS EDITOR (create / edit a class end to end) ──
+let classEditId = null, classEditImg = null;
+function clsSlugify(s){ return 'cls-'+(s||'class').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,38) || 'cls-class'; }
+function ceSetCover(src){
+  const img=document.getElementById('ce-cover-img'), em=document.getElementById('ce-cover-empty');
+  if(src){ img.src=src; img.style.display='block'; em.style.display='none'; }
+  else{ img.removeAttribute('src'); img.style.display='none'; em.style.display='block'; }
+}
+function ceCoverFromUrl(){ const u=document.getElementById('ce-image').value.trim(); classEditImg=null; ceSetCover(u); }
+function handleClassCover(e){
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=ev=>compressImage(ev.target.result,1200,0.82,c=>{ classEditImg=c; ceSetCover(c); document.getElementById('ce-image').value=''; showToast('📷 Cover ready','t-success'); });
+  r.readAsDataURL(f);
+}
+function ceToggleLive(){ document.getElementById('ce-live-fields').style.display = document.getElementById('ce-type').value==='live'?'block':'none'; }
+function classLessonRowHTML(l){
+  l=l||{};
+  const v=s=>clsEsc(s||'');
+  return `<div class="ce-lesson-row" style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:5px">
+      <span class="ce-l-num" style="font-size:.7rem;color:var(--muted);min-width:16px"></span>
+      <input class="finput ce-l-title" placeholder="Lesson title" style="flex:1" value="${v(l.title)}">
+      <input class="finput ce-l-dur" placeholder="12 min" style="width:82px" value="${v(l.duration)}">
+      <button type="button" class="btn btn-ghost btn-xs" title="Remove lesson" onclick="this.closest('.ce-lesson-row').remove();ceRenumber()">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input class="finput ce-l-vid" placeholder="Video / Zoom / YouTube / Twitch URL" style="flex:1" value="${v(l.video_url)}">
+      <label style="font-size:.64rem;color:var(--muted);display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="ce-l-free" ${l.free_preview?'checked':''}>free preview</label>
+    </div>
+  </div>`;
+}
+function ceRenumber(){ document.querySelectorAll('#ce-lessons .ce-lesson-row .ce-l-num').forEach((el,i)=>el.textContent=(i+1)+'.'); }
+function addClassLesson(l){ document.getElementById('ce-lessons').insertAdjacentHTML('beforeend', classLessonRowHTML(l)); ceRenumber(); }
+function ceCollectLessons(){
+  return Array.from(document.querySelectorAll('#ce-lessons .ce-lesson-row')).map(row=>({
+    title:row.querySelector('.ce-l-title').value.trim(),
+    duration:row.querySelector('.ce-l-dur').value.trim(),
+    video_url:row.querySelector('.ce-l-vid').value.trim(),
+    free_preview:row.querySelector('.ce-l-free').checked
+  })).filter(l=>l.title);
+}
+
+function openClassEditor(id){
+  const c = id ? (hubClasses.find(x=>x.id===id)||{}) : {};
+  classEditId = id || null; classEditImg = (c.image && /^data:/.test(c.image)) ? c.image : null;
+  document.getElementById('ce-title').textContent = id ? 'Edit Class' : 'New Class';
+  document.getElementById('ce-title-in').value = c.title || '';
+  document.getElementById('ce-image').value = (c.image && !/^data:/.test(c.image)) ? c.image : '';
+  ceSetCover(c.image || '');
+  document.getElementById('ce-type').value = c.type || 'ondemand';
+  document.getElementById('ce-level').value = c.level || 'Beginner';
+  document.getElementById('ce-price').value = c.price || '';
+  document.getElementById('ce-duration').value = c.duration || '';
+  document.getElementById('ce-track').value = (c.track!=null?c.track:'');
+  document.getElementById('ce-blurb').value = c.blurb || '';
+  document.getElementById('ce-desc').value = c.description || '';
+  document.getElementById('ce-start').value = c.start_at ? toLocalInput(c.start_at) : '';
+  document.getElementById('ce-seats').value = (c.seats!=null?c.seats:'');
+  document.getElementById('ce-join').value = c.join_url || '';
+  document.getElementById('ce-materials').value = (clsArr(c.materials)||[]).join('\n');
+  document.getElementById('ce-active').checked = (c.active!==false);
+  const lessons = clsArr(c.lessons);
+  const box = document.getElementById('ce-lessons'); box.innerHTML='';
+  (lessons.length?lessons:[{}]).forEach(l=>addClassLesson(l));
+  document.getElementById('ce-delete-btn').style.display = id ? 'inline-flex' : 'none';
+  ceToggleLive();
+  document.getElementById('cp-overlay-classedit').classList.add('open');
+}
+function closeClassEditor(){ document.getElementById('cp-overlay-classedit').classList.remove('open'); }
+
+async function saveClassEditor(){
+  const title=document.getElementById('ce-title-in').value.trim();
+  if(!title){ showToast('Give the class a title'); return; }
+  let id=classEditId;
+  if(!id){
+    id=clsSlugify(title);
+    const existing=new Set(hubClasses.map(c=>c.id));
+    if(existing.has(id)){ let n=2; while(existing.has(id+'-'+n)) n++; id=id+'-'+n; }
+  }
+  const type=document.getElementById('ce-type').value;
+  const startLocal=document.getElementById('ce-start').value;
+  const seats=document.getElementById('ce-seats').value.trim();
+  const image=classEditImg || document.getElementById('ce-image').value.trim() || null;
+  const cls={
+    id, track:(document.getElementById('ce-track').value.trim()!==''?Number(document.getElementById('ce-track').value.trim()):null),
+    active:document.getElementById('ce-active').checked,
+    title, type, level:document.getElementById('ce-level').value,
+    price:document.getElementById('ce-price').value.trim(),
+    blurb:document.getElementById('ce-blurb').value.trim(),
+    description:document.getElementById('ce-desc').value.trim(),
+    image, instructor:'Cece',
+    duration:document.getElementById('ce-duration').value.trim(),
+    start_at: type==='live' && startLocal ? new Date(startLocal).toISOString() : null,
+    join_url: type==='live' ? document.getElementById('ce-join').value.trim() : '',
+    seats: type==='live' && seats ? Number(seats) : null,
+    materials:document.getElementById('ce-materials').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    lessons:ceCollectLessons()
+  };
+  if(type==='live'){ const cur=hubClasses.find(x=>x.id===id); cls.seats_left = (cur&&cur.seats_left!=null)?cur.seats_left:cls.seats; }
+  // Update local list
+  const idx=hubClasses.findIndex(x=>x.id===id);
+  if(idx>=0) hubClasses[idx]={...hubClasses[idx],...cls}; else hubClasses.push(cls);
+  if(CONFIGURED){
+    try{
+      await sb.upsert('classes',{...cls,lessons:JSON.stringify(cls.lessons),materials:JSON.stringify(cls.materials)},'id');
+      showToast('💾 Class saved — live on the website','t-success');
+    }catch(e){ showToast('Saved locally — is the classes table created? (see SQL)','t-error'); }
+  }else{ showToast('Saved locally — connect Supabase to publish.'); }
+  closeClassEditor();
+  const seedBtn=document.getElementById('cls-seed-btn'); if(seedBtn) seedBtn.style.display='none';
+  renderClassStats(); renderClassCatalog();
+}
+
+async function deleteClassFromEditor(){
+  if(!classEditId) return;
+  if(!confirm('Delete this class? Students already enrolled keep their access, but it will no longer be offered.')) return;
+  const id=classEditId;
+  hubClasses=hubClasses.filter(c=>c.id!==id);
+  if(CONFIGURED){ try{ await sb.delete('classes',id); }catch(e){} }
+  closeClassEditor();
+  showToast('Class deleted','t-success');
+  renderClassStats(); renderClassCatalog();
 }
 
 // ── DASHBOARD ──
@@ -5952,6 +6087,72 @@ create policy "Public access" on class_enrollments for all using (true) with che
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cp-overlay-enroll').classList.remove('open')">Cancel</button>
       <button class="btn btn-amber btn-sm" onclick="saveManualEnrollment()">Book Student →</button>
+    </div>
+  </div>
+</div>
+
+<!-- FULL CLASS EDITOR MODAL (create / edit a class end to end) -->
+<div class="cp-overlay" id="cp-overlay-classedit">
+  <div class="cp-modal" style="max-width:720px">
+    <button class="cp-modal-close" onclick="closeClassEditor()">✕</button>
+    <div class="cp-modal-title" id="ce-title">New Class</div>
+    <div class="cp-modal-sub">Build the whole class here — details, cover, lessons &amp; videos, supply list. Saving publishes it to the website.</div>
+
+    <div style="display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:start">
+      <div>
+        <div id="ce-cover-wrap" style="aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:var(--sidebar-hover);border:1px solid var(--border);display:flex;align-items:center;justify-content:center">
+          <img id="ce-cover-img" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
+          <span id="ce-cover-empty" style="font-size:1.6rem;opacity:.3">🎨</span>
+        </div>
+        <label class="btn btn-ghost btn-xs" style="cursor:pointer;margin-top:6px;width:100%;justify-content:center">📷 Upload cover<input type="file" accept="image/*" style="display:none" onchange="handleClassCover(event)"></label>
+      </div>
+      <div>
+        <div class="fg"><label class="flabel">Title</label><input class="finput" id="ce-title-in" placeholder="e.g. Resin 101: Your First Pour"></div>
+        <div class="fg"><label class="flabel">Cover image URL (or upload at left)</label><input class="finput" id="ce-image" placeholder="https://…" oninput="ceCoverFromUrl()"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="fg"><label class="flabel">Format</label><select class="fsel" id="ce-type" onchange="ceToggleLive()"><option value="ondemand">On-demand course</option><option value="live">Live workshop</option></select></div>
+          <div class="fg"><label class="flabel">Level</label><select class="fsel" id="ce-level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option><option>Master</option><option>All Levels</option></select></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+          <div class="fg"><label class="flabel">Price ($)</label><input class="finput" id="ce-price" placeholder="49"></div>
+          <div class="fg"><label class="flabel">Duration</label><input class="finput" id="ce-duration" placeholder="1 hr 40 min"></div>
+          <div class="fg"><label class="flabel">Order</label><input class="finput" id="ce-track" placeholder="1" title="Learning-path order (1=first)"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="fg"><label class="flabel">Short blurb (card)</label><input class="finput" id="ce-blurb" placeholder="One line shown on the class card"></div>
+    <div class="fg"><label class="flabel">Full description</label><textarea class="ftarea" id="ce-desc" rows="3" placeholder="What the class covers and who it's for"></textarea></div>
+
+    <div id="ce-live-fields" style="display:none;border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;background:var(--bg)">
+      <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;color:var(--coral);font-weight:700;margin-bottom:8px">Live session</div>
+      <div style="display:grid;grid-template-columns:1.4fr .6fr;gap:10px">
+        <div class="fg" style="margin:0"><label class="flabel">Date &amp; time</label><input class="finput" type="datetime-local" id="ce-start"></div>
+        <div class="fg" style="margin:0"><label class="flabel">Seats</label><input class="finput" id="ce-seats" placeholder="12"></div>
+      </div>
+      <div class="fg" style="margin:8px 0 0"><label class="flabel">Join / stream link (Zoom, Google Meet, YouTube, Twitch)</label><input class="finput" id="ce-join" placeholder="https://zoom.us/j/…"></div>
+    </div>
+
+    <div class="fg"><label class="flabel">Supply list (one item per line)</label><textarea class="ftarea" id="ce-materials" rows="4" placeholder="2-part epoxy resin (16 oz)&#10;Mica pigment powders&#10;Gloves, cups, stir sticks"></textarea></div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:6px 0 8px">
+      <label class="flabel" style="margin:0">Lessons &amp; videos</label>
+      <button type="button" class="btn btn-ghost btn-xs" onclick="addClassLesson()">➕ Add lesson</button>
+    </div>
+    <div id="ce-lessons"></div>
+    <div style="font-size:.66rem;color:var(--muted);margin:6px 0 4px">Paste a YouTube, Vimeo or Twitch link to play in the classroom; a Zoom/Meet link shows a Join button. Leave blank if the video isn't ready yet.</div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin:14px 0 6px">
+      <label class="toggle-switch"><input type="checkbox" id="ce-active" checked><span class="toggle-slider"></span></label>
+      <span style="font-size:.8rem;color:var(--ink2)">Offer this class on the website</span>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px">
+      <button class="btn btn-ghost btn-sm" id="ce-delete-btn" onclick="deleteClassFromEditor()" style="color:var(--coral)">🗑 Delete</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="closeClassEditor()">Cancel</button>
+        <button class="btn btn-amber btn-sm" onclick="saveClassEditor()">💾 Save class</button>
+      </div>
     </div>
   </div>
 </div>
