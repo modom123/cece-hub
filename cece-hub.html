@@ -9,8 +9,15 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-16_0505 UTC
-  CHANGE: 2026-09-16_0505 — Payments dashboard: new "Revenue by Source" card
+  LAST UPDATED: 2026-09-16_0545 UTC
+  CHANGE: 2026-09-16_0545 — Photo Studio: a built-in photo enhancer for piece
+          photos. One-click Auto-Enhance plus sliders (brightness, contrast,
+          saturation, warmth, sharpen, vignette) and preset looks (Bright &
+          Airy, Vivid, Warm Gold, Cool, Studio, Mono). Apply as the main photo,
+          or "Make color variations" to spin off colorway variations from the
+          enhanced base. Opens from the Publish upload area and each piece's
+          edit modal. All client-side canvas — no uploads, works offline.
+          2026-09-16_0505 — Payments dashboard: new "Revenue by Source" card
           breaking out Art vs Classes vs Deposits (with a proportional bar and
           total collected). Art = confirmed full-price sales + confirmed custom
           pieces at final price; Classes = confirmed enrollments; Deposits =
@@ -666,7 +673,8 @@ tr:hover td{background:var(--bg)}
                 <img class="up-preview" id="mainPreview" alt="">
                 <div id="mainUpPrompt"><div class="up-icon">🖼</div><div class="up-text"><strong>Drop your photo here</strong> or tap to browse<br><span style="font-size:.62rem;opacity:.6">JPG · PNG · HEIC · Auto-compressed for fast loading on your website</span></div></div>
               </div>
-              <button type="button" class="btn btn-full" id="curateBtn" onclick="curatePiece()" style="margin:10px 0 4px;background:linear-gradient(135deg,#8b3fff,#b06bff);color:#fff;font-weight:700">🎨 &nbsp;Curate with AI — write the title, description &amp; caption from the photo</button>
+              <button type="button" class="btn btn-ghost btn-full" onclick="openPhotoStudio('pub')" style="margin:10px 0 4px">✨ &nbsp;Photo Studio — enhance the photo &amp; make variations</button>
+              <button type="button" class="btn btn-full" id="curateBtn" onclick="curatePiece()" style="margin:4px 0;background:linear-gradient(135deg,#8b3fff,#b06bff);color:#fff;font-weight:700">🎨 &nbsp;Curate with AI — write the title, description &amp; caption from the photo</button>
               <div style="font-size:.62rem;color:var(--muted);margin-bottom:12px;text-align:center">The Curator agent looks at your photo and fills the fields below. Review &amp; tweak before publishing.</div>
               <div class="form-row">
                 <div class="fg"><label class="flabel">Title *</label><input class="finput" id="f-title" placeholder='e.g. "Golden Resin Flow"'></div>
@@ -2070,7 +2078,10 @@ tr:hover td{background:var(--bg)}
       <div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
           <div style="font-size:.62rem;letter-spacing:.15em;text-transform:uppercase;color:var(--amber)">Edit piece</div>
-          <button type="button" class="btn btn-ghost btn-sm" id="pm-curate-btn" onclick="curatePieceEdit()" style="margin:0">🎨 Curate with AI</button>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="openPhotoStudio('pm')" style="margin:0">✨ Photo Studio</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="pm-curate-btn" onclick="curatePieceEdit()" style="margin:0">🎨 Curate</button>
+          </div>
         </div>
         <div class="fg"><label class="flabel">Title</label><input class="finput" id="pm-e-title" placeholder="Title"></div>
         <div class="form-row">
@@ -3458,6 +3469,144 @@ async function savePieceVariations() {
     p.variations = pmVariationsBuf.slice();
     showToast('🎨 Variations saved — live on your website.','t-success');
   } catch(e) { showToast('Error saving variations (add the "variations" column — see SQL).','t-error'); }
+}
+
+// ═══════════════ PHOTO STUDIO — enhance a photo & make variations ═══════════════
+let PS = { which:'pub', imgEl:null, src:'' };
+const PS_PRESETS = [
+  { name:'Original',      adj:{ brightness:1,    contrast:1,    saturate:1,    warmth:0,   sharpen:0,    vignette:0    } },
+  { name:'Bright & Airy', adj:{ brightness:1.14, contrast:0.98, saturate:1.06, warmth:6,   sharpen:0.2,  vignette:0    } },
+  { name:'Vivid',         adj:{ brightness:1.03, contrast:1.2,  saturate:1.42, warmth:2,   sharpen:0.4,  vignette:0.05 } },
+  { name:'Warm Gold',     adj:{ brightness:1.05, contrast:1.05, saturate:1.16, warmth:26,  sharpen:0.25, vignette:0.06 } },
+  { name:'Cool',          adj:{ brightness:1.03, contrast:1.06, saturate:1.1,  warmth:-22, sharpen:0.25, vignette:0.04 } },
+  { name:'Studio',        adj:{ brightness:1.12, contrast:1.08, saturate:1.08, warmth:4,   sharpen:0.35, vignette:0.14 } },
+  { name:'Mono',          adj:{ brightness:1.05, contrast:1.16, saturate:0,    warmth:0,   sharpen:0.3,  vignette:0.1  } },
+];
+function psClamp(v){ return v<0?0:v>255?255:v; }
+function psGetAdj(){
+  const g = id => parseFloat(document.getElementById(id).value);
+  return { brightness:g('ps-brightness'), contrast:g('ps-contrast'), saturate:g('ps-saturate'), warmth:g('ps-warmth'), sharpen:g('ps-sharpen'), vignette:g('ps-vignette') };
+}
+function psSetAdj(a){
+  const s = (id,v) => { const el=document.getElementById(id); if(el && v!=null) el.value=v; };
+  s('ps-brightness',a.brightness); s('ps-contrast',a.contrast); s('ps-saturate',a.saturate);
+  s('ps-warmth',a.warmth); s('ps-sharpen',a.sharpen); s('ps-vignette',a.vignette);
+}
+function renderPsPresets(){
+  const el=document.getElementById('ps-presets');
+  el.innerHTML = PS_PRESETS.map((p,i)=>`<button type="button" class="ps-preset" onclick="psApplyPreset(${i})">${p.name}</button>`).join('');
+}
+function psApplyPreset(i){ psSetAdj(PS_PRESETS[i].adj); psRender(); }
+function psReset(){ psSetAdj({ brightness:1, contrast:1, saturate:1, warmth:0, sharpen:0, vignette:0 }); psRender(); }
+
+// Unsharp-mask sharpen (3×3). Returns a new ImageData.
+function psSharpen(src, amount){
+  const w=src.width, h=src.height, s=src.data, out=new Uint8ClampedArray(s);
+  const a=amount*0.8, k=[0,-a,0,-a,1+4*a,-a,0,-a,0];
+  for(let y=1;y<h-1;y++){ for(let x=1;x<w-1;x++){
+    for(let c=0;c<3;c++){
+      let sum=0, ki=0;
+      for(let ky=-1;ky<=1;ky++) for(let kx=-1;kx<=1;kx++) sum += s[((y+ky)*w+(x+kx))*4+c]*k[ki++];
+      out[(y*w+x)*4+c] = psClamp(sum);
+    }
+  }}
+  return new ImageData(out, w, h);
+}
+// Core pipeline: brightness/contrast/saturate via GPU filter, then warmth,
+// vignette & sharpen per-pixel. Draws into `canvas`.
+function psRenderTo(canvas, adj, maxW){
+  const img = PS.imgEl; if(!img) return true;
+  let w = img.naturalWidth||img.width, h = img.naturalHeight||img.height;
+  if(maxW && w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
+  canvas.width=w; canvas.height=h;
+  const ctx=canvas.getContext('2d');
+  ctx.filter = `brightness(${adj.brightness}) contrast(${adj.contrast}) saturate(${adj.saturate})`;
+  ctx.drawImage(img, 0, 0, w, h);
+  ctx.filter = 'none';
+  if(adj.warmth!==0 || adj.vignette>0 || adj.sharpen>0){
+    let id;
+    try { id = ctx.getImageData(0,0,w,h); }
+    catch(e){ return false; } // tainted (cross-origin) — filter-only preview
+    if(adj.sharpen>0) id = psSharpen(id, adj.sharpen);
+    const d=id.data, warmth=adj.warmth, vig=adj.vignette;
+    for(let y=0;y<h;y++){ for(let x=0;x<w;x++){
+      const i=(y*w+x)*4;
+      if(warmth){ d[i]=psClamp(d[i]+warmth*0.9); d[i+2]=psClamp(d[i+2]-warmth*0.9); }
+      if(vig){ const dx=(x/w-0.5)*2, dy=(y/h-0.5)*2; let dist=Math.sqrt(dx*dx+dy*dy)/1.4142; let f=1-vig*Math.max(0,(dist-0.5))/0.5; if(f<0)f=0; d[i]*=f; d[i+1]*=f; d[i+2]*=f; }
+    }}
+    ctx.putImageData(id, 0, 0);
+  }
+  return true;
+}
+function psRender(){ psRenderTo(document.getElementById('ps-canvas'), psGetAdj(), 760); }
+function psExport(){ const c=document.createElement('canvas'); psRenderTo(c, psGetAdj(), 1400); return c.toDataURL('image/jpeg', 0.85); }
+
+function openPhotoStudio(which){
+  const src = which==='pm' ? (pieces.find(p=>p.id===currentPieceId)||{}).image : imgData;
+  if(!src){ showToast('Upload or open a photo first.','t-error'); return; }
+  PS.which=which; PS.src=src;
+  const img=new Image(); img.crossOrigin='anonymous';
+  img.onload=()=>{ PS.imgEl=img; renderPsPresets(); psReset(); document.getElementById('cp-overlay-photostudio').classList.add('open'); };
+  img.onerror=()=>showToast('Could not load this image. Re-upload it and try again.','t-error');
+  img.src=src;
+}
+function closePhotoStudio(){ document.getElementById('cp-overlay-photostudio').classList.remove('open'); }
+
+function psAutoEnhance(){
+  if(!PS.imgEl) return;
+  // Estimate exposure from a small sample and pick a pleasing correction.
+  let mean=128;
+  try{
+    const sw=80, sh=Math.max(1,Math.round(sw*(PS.imgEl.naturalHeight/PS.imgEl.naturalWidth||1)));
+    const c=document.createElement('canvas'); c.width=sw; c.height=sh;
+    const cx=c.getContext('2d'); cx.drawImage(PS.imgEl,0,0,sw,sh);
+    const d=cx.getImageData(0,0,sw,sh).data; let sum=0;
+    for(let i=0;i<d.length;i+=4) sum += 0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+    mean = sum/(d.length/4);
+  }catch(e){}
+  const bright = mean<100 ? 1.2 : mean<140 ? 1.09 : mean>185 ? 0.95 : 1.03;
+  psSetAdj({ brightness:bright, contrast:1.14, saturate:1.18, warmth:6, sharpen:0.35, vignette:0.08 });
+  psRender();
+  showToast('✨ Auto-enhanced — tweak or apply','t-success');
+}
+
+function psApplyMain(){
+  let url;
+  try{ url=psExport(); }catch(e){ url=null; }
+  if(!url){ showToast('Could not export this photo (image blocked cross-origin). Re-upload it, then enhance.','t-error'); return; }
+  if(PS.which==='pm'){
+    const p=pieces.find(x=>x.id===currentPieceId);
+    document.getElementById('pm-img').src=url;
+    if(p){ p.image=url; if(CONFIGURED){ sb.update('pieces', p.id, { image:url }).then(()=>{ renderCollection(); refreshDash(); }).catch(()=>showToast('Saved locally — could not sync.','t-error')); } }
+    showToast('✅ Photo updated','t-success');
+  }else{
+    imgData=url;
+    const pv=document.getElementById('mainPreview'); pv.src=url; pv.classList.add('show');
+    const prompt=document.getElementById('mainUpPrompt'); if(prompt) prompt.style.display='none';
+    showToast('✅ Enhanced photo ready','t-success');
+  }
+  closePhotoStudio();
+}
+
+function psGenerateVariations(){
+  let base;
+  try{ base=psExport(); }catch(e){ base=null; }
+  if(!base){ showToast('Could not read this photo (cross-origin). Re-upload it, then make variations.','t-error'); return; }
+  const img=new Image();
+  img.onload=()=>{
+    const buf=varBuf(PS.which); let made=0;
+    try{
+      VAR_PRESETS.forEach(preset=>{
+        const c=document.createElement('canvas'); c.width=img.width; c.height=img.height;
+        const ctx=c.getContext('2d'); ctx.filter=preset.filter; ctx.drawImage(img,0,0);
+        buf.push({ image:c.toDataURL('image/jpeg',0.82), label:preset.label }); made++;
+      });
+    }catch(e){ showToast('Could not create variations from this photo.','t-error'); return; }
+    renderVarStrip(PS.which);
+    showToast(`🎨 Added ${made} variations — remember to Save`,'t-success');
+    closePhotoStudio();
+  };
+  img.src=base;
 }
 
 // ── COLLECTION ──
@@ -6304,6 +6453,49 @@ create policy "Public access" on class_enrollments for all using (true) with che
     </div>
   </div>
 </div>
+
+<!-- PHOTO STUDIO — enhance a photo & make variations -->
+<div class="cp-overlay" id="cp-overlay-photostudio">
+  <div class="cp-modal" style="max-width:760px">
+    <button class="cp-modal-close" onclick="closePhotoStudio()">✕</button>
+    <div class="cp-modal-title">✨ Photo Studio</div>
+    <div class="cp-modal-sub">Brighten and polish your photo, pick a look, then apply it as the main image — or spin off color variations.</div>
+
+    <div style="text-align:center;background:#111;border-radius:12px;padding:10px;margin-bottom:12px">
+      <canvas id="ps-canvas" style="max-width:100%;max-height:46vh;border-radius:8px;display:inline-block"></canvas>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn btn-amber btn-sm" onclick="psAutoEnhance()">✨ Auto-Enhance</button>
+      <button class="btn btn-ghost btn-sm" onclick="psReset()">↺ Reset</button>
+      <span style="flex:1"></span>
+      <span style="font-size:.64rem;color:var(--muted);align-self:center">Looks:</span>
+      <div id="ps-presets" style="display:flex;gap:5px;flex-wrap:wrap"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;margin-bottom:14px">
+      <label class="ps-ctl">Brightness<input type="range" id="ps-brightness" min="0.6" max="1.5" step="0.01" value="1" oninput="psRender()"></label>
+      <label class="ps-ctl">Contrast<input type="range" id="ps-contrast" min="0.6" max="1.7" step="0.01" value="1" oninput="psRender()"></label>
+      <label class="ps-ctl">Saturation<input type="range" id="ps-saturate" min="0" max="2" step="0.01" value="1" oninput="psRender()"></label>
+      <label class="ps-ctl">Warmth<input type="range" id="ps-warmth" min="-40" max="40" step="1" value="0" oninput="psRender()"></label>
+      <label class="ps-ctl">Sharpen<input type="range" id="ps-sharpen" min="0" max="1" step="0.05" value="0" oninput="psRender()"></label>
+      <label class="ps-ctl">Vignette<input type="range" id="ps-vignette" min="0" max="0.8" step="0.02" value="0" oninput="psRender()"></label>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;border-top:1px solid var(--border);padding-top:12px">
+      <button class="btn btn-ghost btn-sm" onclick="psGenerateVariations()">🎨 Make color variations</button>
+      <button class="btn btn-green btn-sm" onclick="psApplyMain()">✅ Apply as main photo</button>
+    </div>
+    <div style="font-size:.64rem;color:var(--muted);margin-top:8px;text-align:right">Variations use this enhanced photo as the base and are added to the Variations list.</div>
+  </div>
+</div>
+
+<style>
+  .ps-ctl{display:flex;flex-direction:column;gap:4px;font-size:.66rem;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.05em}
+  .ps-ctl input[type=range]{width:100%;accent-color:var(--amber)}
+  .ps-preset{font-size:.62rem;padding:4px 9px;border-radius:20px;border:1px solid var(--border);background:var(--white);cursor:pointer;color:var(--ink2);white-space:nowrap}
+  .ps-preset:hover{border-color:var(--amber);color:var(--amber)}
+</style>
 
 <!-- ═══════════════════════════════════════════════
      IEBC CONSULTANT PORTAL MODALS
