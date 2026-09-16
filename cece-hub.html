@@ -9,8 +9,23 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-12_0740 UTC
-  CHANGE: 2026-09-12_0740 — Keys now persist for good: every saved key is
+  LAST UPDATED: 2026-09-16_0140 UTC
+  CHANGE: 2026-09-16_0140 — Fixed "Auto-create color variations": it now sets
+          crossOrigin on the source image so recoloring works on saved pieces
+          (remote photo URLs) instead of silently failing, with a clear error
+          if an image is blocked. Added a "Preservation" category option to
+          the Publish and piece-edit category pickers.
+          2026-09-16_0022 — Added the Online Classes command center. New
+          "Classes" tab (sidebar → Art & Sales) is the source of truth for
+          the website Academy: toggle each class on/off to offer it, set the
+          price inline, and for live workshops pick the date/time, seats and
+          a join/stream link (Zoom, Google Meet, YouTube or Twitch). "Add the
+          4 starter classes" seeds the Beginner→Master ladder into Supabase.
+          A Student Bookings panel lists website enrollments and lets Cece
+          book students by hand (phone/gift/private group), mark them
+          confirmed/paid, and email them. Needs two new tables — `classes`
+          and `class_enrollments` — see the SQL at the end of this file.
+          2026-09-12_0740 — Keys now persist for good: every saved key is
           mirrored to this browser's localStorage as well as Supabase, loaded
           on start, and merged (never overwritten) by the team sync — so the
           Anthropic key stays set on every login and never needs re-entering.
@@ -499,6 +514,7 @@ tr:hover td{background:var(--bg)}
     <button class="nav-btn" onclick="goPage('publish',this)"><span class="ico">📸</span>Publish a Piece</button>
     <button class="nav-btn" onclick="goPage('collection',this)"><span class="ico">🖼</span>My Collection</button>
     <button class="nav-btn" onclick="goPage('rentals',this)"><span class="ico">🎪</span>Rentals</button>
+    <button class="nav-btn" onclick="goPage('classes',this)"><span class="ico">🎓</span>Classes</button>
     <button class="nav-btn" onclick="goPage('payments',this)"><span class="ico">💳</span>Payments</button>
     <button class="nav-btn" onclick="goPage('orders',this)"><span class="ico">🛒</span>Website Orders</button>
   </div>
@@ -625,7 +641,7 @@ tr:hover td{background:var(--bg)}
               <div style="font-size:.62rem;color:var(--muted);margin-bottom:12px;text-align:center">The Curator agent looks at your photo and fills the fields below. Review &amp; tweak before publishing.</div>
               <div class="form-row">
                 <div class="fg"><label class="flabel">Title *</label><input class="finput" id="f-title" placeholder='e.g. "Golden Resin Flow"'></div>
-                <div class="fg"><label class="flabel">Medium *</label><select class="fsel" id="f-type"><option value="">Select...</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Statement Panel</option><option>Seasonal Gift</option><option>Photography</option><option>Mixed Media</option></select></div>
+                <div class="fg"><label class="flabel">Medium *</label><select class="fsel" id="f-type"><option value="">Select...</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Preservation</option><option>Statement Panel</option><option>Seasonal Gift</option><option>Photography</option><option>Mixed Media</option></select></div>
                 <div class="fg"><label class="flabel">Price (USD) *</label><input class="finput" id="f-price" placeholder="e.g. 450" oninput="updateCaption()"></div>
                 <div class="fg"><label class="flabel">Dimensions</label><input class="finput" id="f-dims" placeholder='e.g. 12" × 16"'></div>
                 <div class="fg full"><label class="flabel">Materials</label><input class="finput" id="f-mats" placeholder="e.g. Epoxy resin, alcohol inks, gold leaf" oninput="updateCaption()"></div>
@@ -906,6 +922,64 @@ tr:hover td{background:var(--bg)}
               <button class="btn btn-ghost btn-full" onclick="loadRentalEmail('reminder')" style="justify-content:flex-start;gap:8px">⏰ Return Reminder</button>
               <button class="btn btn-ghost btn-full" onclick="loadRentalEmail('inquiry')" style="justify-content:flex-start;gap:8px">💬 Inquiry Response</button>
               <button class="btn btn-ghost btn-full" onclick="loadRentalEmail('stager')" style="justify-content:flex-start;gap:8px">🏠 Stager Outreach</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CLASSES (Online Academy — command center) -->
+    <div class="page" id="page-classes">
+      <div class="rental-hero" style="background:linear-gradient(135deg,#faf0d6,#f3e2b0)">
+        <div class="rental-hero-text">
+          <h2>Your Online <em>Academy</em></h2>
+          <p>Pick which classes to offer on the website, schedule your live workshops, set the price for each, and book students — all from here. Changes appear on the site within seconds.</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost" id="cls-seed-btn" onclick="seedDefaultClasses()">✨ Add the 4 starter classes</button>
+          <button class="btn btn-amber" onclick="openEnrollStudentModal()">+ Book a Student</button>
+        </div>
+      </div>
+      <div class="rental-stats">
+        <div class="rental-stat"><div class="rs-label">Classes Offered</div><div class="rs-value" id="cs-offered">—</div><div class="rs-sub">live on the website</div></div>
+        <div class="rental-stat" style="border-top-color:var(--coral)"><div class="rs-label">Upcoming Live</div><div class="rs-value" id="cs-live">—</div><div class="rs-sub">scheduled sessions</div></div>
+        <div class="rental-stat" style="border-top-color:var(--teal)"><div class="rs-label">Students Enrolled</div><div class="rs-value" id="cs-students">—</div><div class="rs-sub">total bookings</div></div>
+        <div class="rental-stat" style="border-top-color:var(--amber)"><div class="rs-label">Class Revenue</div><div class="rs-value" id="cs-revenue">—</div><div class="rs-sub">enrolled value</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:18px">
+        <div>
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">🎓 Class Catalog</span>
+              <span style="font-size:.62rem;color:var(--muted)">Toggle to offer · set price · schedule live</span>
+            </div>
+            <div class="card-body" style="padding:12px 14px">
+              <div id="class-catalog-list">
+                <div style="text-align:center;padding:32px;color:var(--muted);font-size:.76rem">Loading classes…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">🧑‍🎓 Student Bookings</span><span style="font-size:.62rem;color:var(--muted)" id="enr-count">0 enrolled</span></div>
+            <div class="card-body" style="padding:12px 16px">
+              <div style="display:flex;gap:6px;margin-bottom:10px">
+                <div class="cf active" style="font-size:.64rem;padding:4px 10px;border-radius:20px;border:1px solid var(--border);cursor:pointer" onclick="filterEnrollments('all',this)">All</div>
+                <div class="cf" style="font-size:.64rem;padding:4px 10px;border-radius:20px;border:1px solid var(--border);cursor:pointer" onclick="filterEnrollments('pending',this)">Pending</div>
+                <div class="cf" style="font-size:.64rem;padding:4px 10px;border-radius:20px;border:1px solid var(--border);cursor:pointer" onclick="filterEnrollments('confirmed',this)">Confirmed</div>
+              </div>
+              <div id="class-enrollments-list">
+                <div style="text-align:center;padding:20px;color:var(--muted);font-size:.76rem">No students booked yet.</div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">💡 How this works</span></div>
+            <div class="card-body" style="padding:14px 16px;font-size:.76rem;color:var(--muted);line-height:1.7">
+              <p style="margin-bottom:8px"><strong style="color:var(--ink2)">Offer:</strong> flip a class on to show it on the website; off to hide it.</p>
+              <p style="margin-bottom:8px"><strong style="color:var(--ink2)">Schedule:</strong> for a live workshop, set the date/time, seats, and paste your Zoom / Google Meet / YouTube / Twitch link. Students get a join button + countdown.</p>
+              <p><strong style="color:var(--ink2)">Price:</strong> edit any price and hit Save. The website updates automatically.</p>
             </div>
           </div>
         </div>
@@ -1931,7 +2005,7 @@ tr:hover td{background:var(--bg)}
         </div>
         <div class="fg"><label class="flabel">Title</label><input class="finput" id="pm-e-title" placeholder="Title"></div>
         <div class="form-row">
-          <div class="fg"><label class="flabel">Category</label><select class="fsel" id="pm-e-type"><option value="">Select…</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Statement Panel</option><option>Seasonal Gift</option><option>Photography</option><option>Mixed Media</option></select></div>
+          <div class="fg"><label class="flabel">Category</label><select class="fsel" id="pm-e-type"><option value="">Select…</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Preservation</option><option>Statement Panel</option><option>Seasonal Gift</option><option>Photography</option><option>Mixed Media</option></select></div>
           <div class="fg"><label class="flabel">Price ($)</label><input class="finput" id="pm-e-price" placeholder="e.g. 150"></div>
         </div>
         <div class="fg"><label class="flabel">Dimensions</label><input class="finput" id="pm-e-dims" placeholder="e.g. 12 × 16 in"></div>
@@ -2313,6 +2387,7 @@ const pmeta = {
   publish:     { t:'Publish a Piece', s:'Upload → set price → hit the button. Done.' },
   collection:  { t:'My Collection', s:'All your original pieces.' },
   rentals:     { t:'Rentals', s:'Birthdays, weddings, house staging & more.' },
+  classes:     { t:'Online Classes', s:'Choose what to offer, schedule live sessions, set prices & book students.' },
   payments:    { t:'Payments', s:'Get paid via Stripe, Venmo, Cash App, or invoice.' },
   crm:         { t:'Contacts & CRM', s:'Track every lead and customer.' },
   social:      { t:'Social Media', s:'Captions, hashtags, and strategy.' },
@@ -2333,6 +2408,7 @@ function goPage(id, btn) {
   document.getElementById('pageSub').textContent = m.s || '';
   if (id === 'dashboard')   refreshDash();
   if (id === 'rentals')     renderRentals();
+  if (id === 'classes')     renderClassesAdmin();
   if (id === 'orders')      renderOrders();
   if (id === 'collection')  renderCollection();
   if (id === 'crm')         renderCRM();
@@ -2342,6 +2418,240 @@ function goPage(id, btn) {
   if (id === 'connections') loadSavedKeys();
   if (id === 'consultants') cpInit();
   if (id === 'agents')      renderAgentsPage();
+}
+
+// ════════════════════════════════════════════════════════════
+//  ONLINE ACADEMY — CLASS MANAGEMENT (command center)
+// ════════════════════════════════════════════════════════════
+let hubClasses = [], hubEnrollments = [], enrFilter = 'all';
+
+function classInDays(n,hour=18){ const d=new Date(); d.setDate(d.getDate()+n); d.setHours(hour,0,0,0); return d.toISOString(); }
+// The 4-class starter ladder (Beginner → Master). Seeded into Supabase so the
+// public website reads exactly what Cece offers/schedules/prices here.
+function hubDefaultClasses(){
+  const B='https://raw.githubusercontent.com/modom123/cecethepieces/main/';
+  return [
+   {id:'cls-resin101',track:1,active:true,title:'Resin 101: Your First Pour',type:'ondemand',level:'Beginner',price:'49',
+    blurb:'Start here. The complete self-paced foundation — mixing, coloring, killing bubbles, and a glass-smooth finish.',
+    image:B+'IMG_4034.jpeg',instructor:'Cece',duration:'1 hr 40 min · 6 lessons',start_at:null,join_url:'',seats:null,seats_left:null,
+    description:'Everything a total beginner needs, on your own schedule. By the end you’ll have poured a clean, professional-looking piece — the perfect first rung of the cecepieces path.',
+    materials:['2-part epoxy resin (starter 16 oz)','A few mica pigments','Small wood panels or coasters','Gloves, cups, stir sticks','Heat gun or torch lighter'],
+    lessons:[{title:'What resin is & choosing the right kind',duration:'12 min',video_url:'',free_preview:true},{title:'Measuring & mixing without mistakes',duration:'18 min',video_url:''},{title:'Coloring: pigments, inks & how much',duration:'16 min',video_url:''},{title:'Killing bubbles & controlling cells',duration:'15 min',video_url:''},{title:'Your first full pour, step by step',duration:'25 min',video_url:''},{title:'Curing, demolding & finishing',duration:'14 min',video_url:''}]},
+   {id:'cls-geode',track:2,active:true,title:'Geode & Alcohol Ink Art — Live Workshop',type:'live',level:'Intermediate',price:'75',
+    blurb:'Pour a sparkling crystal geode and bloom petri-style ink art, live with Cece in one relaxed evening.',
+    image:B+'81746D25-6F5A-426B-8BB6-6EC446155E6D.jpeg',instructor:'Cece',duration:'2 hours',start_at:classInDays(7,18),join_url:'',seats:12,seats_left:12,
+    description:'Your next step up: a camera-on evening building a crystal geode and playing with blooming alcohol inks together, start to finish. Assumes you’ve poured at least once (or finished Resin 101).',
+    materials:['2-part epoxy resin (16 oz)','Mica pigment powders (3–4 colors)','Alcohol inks (2–3 colors)','Wooden or canvas panel, 8"–12"','Clear crystals / crushed glass','Nitrile gloves, cups, stir sticks','Heat gun or torch lighter'],
+    lessons:[{title:'Welcome + safety & workspace setup',duration:'15 min',video_url:'',free_preview:true},{title:'Mixing, coloring & the geode base',duration:'40 min',video_url:''},{title:'Crystal edge, cells & alcohol-ink blooms',duration:'40 min',video_url:''},{title:'Metallics, finishing & live Q&A',duration:'25 min',video_url:''}]},
+   {id:'cls-coastal',track:3,active:true,title:'Ocean Waves & Memorial Keepsakes — Live',type:'live',level:'Advanced',price:'95',
+    blurb:'Sculpt lacing waves, a sandy shoreline, and learn to preserve flowers & keepsakes in resin, live.',
+    image:B+'IMG_4036.jpeg',instructor:'Cece',duration:'2.5 hours',start_at:classInDays(15,18),join_url:'',seats:10,seats_left:10,
+    description:'An advanced live session in two parts: the white lacing-wave coastal technique, then the respectful craft of preserving flowers, sand or a keepsake into a memorial piece. Faster paced — best once you’re comfortable timing a pour.',
+    materials:['2-part epoxy resin (24 oz)','White + blue/teal pigments','Real fine beach sand','Dried / pressed flowers or a keepsake','Wood panel, tray or silicone mold','Heat gun, gloves, cups, stir sticks'],
+    lessons:[{title:'The coastal color plan & base layer',duration:'30 min',video_url:'',free_preview:true},{title:'The lacing wave technique',duration:'40 min',video_url:''},{title:'Preserving flowers & keepsakes, respectfully',duration:'45 min',video_url:''},{title:'Finishing, personalization & Q&A',duration:'25 min',video_url:''}]},
+   {id:'cls-river',track:4,active:true,title:'The River Table Masterclass',type:'ondemand',level:'Master',price:'129',
+    blurb:'The signature cecepieces look. Live-edge wood + a deep resin river, taught end to end. Our deepest course.',
+    image:B+'IMG_4026.jpeg',instructor:'Cece',duration:'2 hr 10 min · 7 lessons',start_at:null,join_url:'',seats:null,seats_left:null,
+    description:'The full masterclass on my signature framed river pieces — from prepping live-edge wood and building a dam, to the deep pour, the druzy crystal heart, sanding back to glass, and a flawless flood coat. The top of the path.',
+    materials:['Live-edge wood slab or board','Deep-pour epoxy resin (32 oz+)','Tuck tape & melamine for a dam','Pigments + druzy crystals','Orbital sander & finishing supplies','Heat gun, gloves, cups'],
+    lessons:[{title:'Choosing & prepping the wood',duration:'18 min',video_url:'',free_preview:true},{title:'Building a leak-proof dam',duration:'16 min',video_url:''},{title:'Coloring the river & planning depth',duration:'18 min',video_url:''},{title:'The deep pour (and avoiding overheating)',duration:'22 min',video_url:''},{title:'Setting the druzy crystal heart',duration:'20 min',video_url:''},{title:'Sanding back to glass',duration:'18 min',video_url:''},{title:'The flood coat & final seal',duration:'18 min',video_url:''}]},
+  ];
+}
+function clsArr(v){ if(Array.isArray(v))return v; if(typeof v==='string'){try{const p=JSON.parse(v);return Array.isArray(p)?p:[];}catch(e){return v?v.split('\n').filter(Boolean):[];}} return []; }
+function clsEsc(s){ return (''+(s==null?'':s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function clsFmtDate(iso){ if(!iso) return 'Not scheduled'; const d=new Date(iso); return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
+// datetime-local wants local time "YYYY-MM-DDTHH:mm"
+function toLocalInput(iso){ if(!iso) return ''; const d=new Date(iso); const off=d.getTimezoneOffset()*60000; return new Date(d-off).toISOString().slice(0,16); }
+
+async function loadHubClasses(){
+  if(CONFIGURED){
+    try{
+      const rows=await sb.query('classes',{select:'*',order:'track.asc'});
+      hubClasses=(rows&&rows.length)?rows.map(c=>({...c,lessons:clsArr(c.lessons),materials:clsArr(c.materials)})):hubDefaultClasses();
+    }catch(e){ hubClasses=hubDefaultClasses(); }
+    try{ hubEnrollments=await sb.query('class_enrollments',{select:'*',order:'created_at.desc'})||[]; }catch(e){ hubEnrollments=[]; }
+  }else{
+    hubClasses=hubDefaultClasses(); hubEnrollments=[];
+  }
+}
+
+async function renderClassesAdmin(){
+  document.getElementById('class-catalog-list').innerHTML='<div style="text-align:center;padding:32px;color:var(--muted);font-size:.76rem">Loading classes…</div>';
+  await loadHubClasses();
+  renderClassStats();
+  renderClassCatalog();
+  renderClassEnrollments();
+  // Hide the seed button once classes exist in the catalog.
+  const seedBtn=document.getElementById('cls-seed-btn'); if(seedBtn) seedBtn.style.display=hubClasses.length?'none':'inline-flex';
+}
+
+function renderClassStats(){
+  const offered=hubClasses.filter(c=>c.active!==false).length;
+  const liveUpcoming=hubClasses.filter(c=>c.type==='live'&&c.start_at&&new Date(c.start_at)>new Date()).length;
+  const students=hubEnrollments.length;
+  const rev=hubEnrollments.reduce((a,e)=>a+(parseFloat(e.price)||0),0);
+  document.getElementById('cs-offered').textContent=offered;
+  document.getElementById('cs-live').textContent=liveUpcoming;
+  document.getElementById('cs-students').textContent=students;
+  document.getElementById('cs-revenue').textContent='$'+rev.toLocaleString();
+}
+
+function renderClassCatalog(){
+  const el=document.getElementById('class-catalog-list');
+  if(!hubClasses.length){ el.innerHTML='<div style="text-align:center;padding:28px;color:var(--muted);font-size:.78rem">No classes yet. <span style="color:var(--amber);cursor:pointer;font-weight:600" onclick="seedDefaultClasses()">Add the 4 starter classes →</span></div>'; return; }
+  const sorted=hubClasses.slice().sort((a,b)=>(Number(a.track)||99)-(Number(b.track)||99));
+  el.innerHTML=sorted.map(c=>{
+    const id=c.id, live=c.type==='live';
+    const enrolled=hubEnrollments.filter(e=>e.class_id===id).length;
+    return `<div style="border:1px solid var(--border);border-radius:11px;padding:12px;margin-bottom:12px;background:var(--white)">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="width:64px;height:64px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--sidebar-hover)">${c.image?`<img src="${clsEsc(c.image)}" style="width:100%;height:100%;object-fit:cover" alt="">`:''}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+            <div style="font-weight:700;color:var(--ink2);font-size:.86rem;line-height:1.25">${clsEsc(c.title)}</div>
+            <label class="toggle-switch" title="Offer on website"><input type="checkbox" ${c.active!==false?'checked':''} onchange="toggleClassActive('${id}',this.checked)"><span class="toggle-slider"></span></label>
+          </div>
+          <div style="font-size:.68rem;color:var(--muted);margin-top:2px">${clsEsc(c.level||'All Levels')} · ${live?'🔴 Live workshop':'▶ On-demand'} · ${enrolled} enrolled</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:${live?'1fr 1fr':'1fr 1fr'};gap:8px;margin-top:10px">
+        <div class="fg" style="margin:0"><label class="flabel">Price (USD)</label><input class="finput" id="clsf-price-${id}" value="${clsEsc(c.price||'')}" placeholder="49"></div>
+        <div class="fg" style="margin:0"><label class="flabel">Type</label>
+          <select class="fsel" id="clsf-type-${id}" onchange="toggleLiveFields('${id}')">
+            <option value="ondemand" ${!live?'selected':''}>On-demand course</option>
+            <option value="live" ${live?'selected':''}>Live workshop</option>
+          </select>
+        </div>
+      </div>
+      <div id="clsf-live-${id}" style="display:${live?'block':'none'};margin-top:8px">
+        <div style="display:grid;grid-template-columns:1.3fr .7fr;gap:8px">
+          <div class="fg" style="margin:0"><label class="flabel">Date & time</label><input class="finput" type="datetime-local" id="clsf-start-${id}" value="${toLocalInput(c.start_at)}"></div>
+          <div class="fg" style="margin:0"><label class="flabel">Seats</label><input class="finput" id="clsf-seats-${id}" value="${c.seats!=null?c.seats:''}" placeholder="12"></div>
+        </div>
+        <div class="fg" style="margin:8px 0 0"><label class="flabel">Join / stream link (Zoom, Meet, YouTube, Twitch)</label><input class="finput" id="clsf-join-${id}" value="${clsEsc(c.join_url||'')}" placeholder="https://zoom.us/j/…  or  https://youtube.com/live/…"></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+        <button class="btn btn-ghost btn-xs" onclick="previewClassOnSite()">↗ View on site</button>
+        <button class="btn btn-amber btn-xs" onclick="saveClassRow('${id}')">💾 Save</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function toggleLiveFields(id){
+  const t=document.getElementById('clsf-type-'+id).value;
+  document.getElementById('clsf-live-'+id).style.display=(t==='live')?'block':'none';
+}
+function previewClassOnSite(){ window.open('https://cecethepiece.com/#classes','_blank')||window.open('https://modom123.github.io/cecethepieces/','_blank'); }
+
+async function saveClassRow(id){
+  const c=hubClasses.find(x=>x.id===id); if(!c) return;
+  const type=document.getElementById('clsf-type-'+id).value;
+  const price=document.getElementById('clsf-price-'+id).value.trim();
+  const patch={ price, type };
+  if(type==='live'){
+    const startLocal=document.getElementById('clsf-start-'+id).value;
+    patch.start_at=startLocal?new Date(startLocal).toISOString():null;
+    const seats=document.getElementById('clsf-seats-'+id).value.trim();
+    patch.seats=seats?Number(seats):null;
+    if(c.seats_left==null && seats) patch.seats_left=Number(seats);
+    patch.join_url=document.getElementById('clsf-join-'+id).value.trim();
+  }
+  Object.assign(c,patch);
+  if(CONFIGURED){
+    try{
+      // Upsert the full row so the website has everything it needs.
+      const row={...c, lessons:JSON.stringify(clsArr(c.lessons)), materials:JSON.stringify(clsArr(c.materials))};
+      await sb.upsert('classes',row,'id');
+      showToast('💾 Saved — live on the website','t-success');
+    }catch(e){ showToast('Saved locally (connect Supabase to sync)'); }
+  }else{ showToast('Saved locally (connect Supabase to sync)'); }
+  renderClassStats();
+}
+async function toggleClassActive(id,on){
+  const c=hubClasses.find(x=>x.id===id); if(!c) return;
+  c.active=on;
+  if(CONFIGURED){ try{ await sb.update('classes',id,{active:on}); }catch(e){ try{ await sb.upsert('classes',{...c,lessons:JSON.stringify(clsArr(c.lessons)),materials:JSON.stringify(clsArr(c.materials))},'id'); }catch(_){} } }
+  showToast(on?'✅ Class is now offered on the site':'Class hidden from the site','t-success');
+  renderClassStats();
+}
+async function seedDefaultClasses(){
+  hubClasses=hubDefaultClasses();
+  if(CONFIGURED){
+    try{
+      const rows=hubClasses.map(c=>({...c,lessons:JSON.stringify(c.lessons),materials:JSON.stringify(c.materials)}));
+      await sb.upsert('classes',rows,'id');
+      showToast('✨ 4 starter classes added','t-success');
+    }catch(e){ showToast('Could not sync — check the classes table exists (see SQL in this file).'); }
+  }else{ showToast('Added locally — connect Supabase to publish.'); }
+  renderClassStats(); renderClassCatalog();
+  const seedBtn=document.getElementById('cls-seed-btn'); if(seedBtn) seedBtn.style.display='none';
+}
+
+function filterEnrollments(f,el){
+  enrFilter=f;
+  document.querySelectorAll('#page-classes .cf').forEach(c=>c.classList.remove('active'));
+  if(el) el.classList.add('active');
+  renderClassEnrollments();
+}
+function renderClassEnrollments(){
+  const list=document.getElementById('class-enrollments-list');
+  let rows=hubEnrollments.slice();
+  if(enrFilter!=='all') rows=rows.filter(e=>(e.status||'pending')===enrFilter);
+  document.getElementById('enr-count').textContent=hubEnrollments.length+' enrolled';
+  if(!rows.length){ list.innerHTML='<div style="text-align:center;padding:20px;color:var(--muted);font-size:.76rem">No students'+(enrFilter!=='all'?' ('+enrFilter+')':'')+' yet.</div>'; return; }
+  list.innerHTML=rows.map(e=>{
+    const status=e.status||'pending';
+    const badge=status==='confirmed'?'badge-available':(status==='cancelled'?'badge-sold':'badge-hold');
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:11px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-weight:700;color:var(--ink2);font-size:.82rem">${clsEsc(e.student_name||'Student')}</div>
+        <span class="art-status-badge ${badge}" style="font-size:.58rem">${clsEsc(status)}</span>
+      </div>
+      <div style="font-size:.7rem;color:var(--muted);margin-top:2px">${clsEsc(e.class_title||'')}${e.price?' · $'+clsEsc(e.price):''}</div>
+      <div style="font-size:.7rem;color:var(--teal);margin-top:2px">${clsEsc(e.student_email||'')}${e.student_phone?' · '+clsEsc(e.student_phone):''}</div>
+      ${e.notes?`<div style="font-size:.68rem;color:var(--muted);margin-top:4px;line-height:1.5">${clsEsc(e.notes)}</div>`:''}
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        ${status!=='confirmed'?`<button class="btn btn-green btn-xs" onclick="setEnrollmentStatus('${e.id}','confirmed')">✓ Confirm / Paid</button>`:''}
+        <button class="btn btn-ghost btn-xs" onclick="emailStudent('${clsEsc(e.student_email||'')}','${clsEsc(e.class_title||'')}')">📧 Email</button>
+        ${status!=='cancelled'?`<button class="btn btn-ghost btn-xs" onclick="setEnrollmentStatus('${e.id}','cancelled')">Cancel</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+async function setEnrollmentStatus(id,status){
+  const e=hubEnrollments.find(x=>String(x.id)===String(id)); if(e) e.status=status;
+  if(CONFIGURED){ try{ await sb.update('class_enrollments',id,{status}); }catch(err){} }
+  showToast('Updated to '+status,'t-success');
+  renderClassEnrollments(); renderClassStats();
+}
+function emailStudent(email,cls){
+  if(!email){ showToast('No email on file'); return; }
+  const sub=encodeURIComponent('Your cecepieces class: '+cls);
+  window.open(`mailto:${email}?subject=${sub}`);
+}
+function openEnrollStudentModal(){
+  const sel=document.getElementById('enr-class-sel');
+  sel.innerHTML=(hubClasses.length?hubClasses:hubDefaultClasses()).map(c=>`<option value="${c.id}">${clsEsc(c.title)} — $${clsEsc(c.price||'')}</option>`).join('');
+  ['enr-stu-name','enr-stu-email','enr-stu-phone','enr-stu-notes'].forEach(i=>{const el=document.getElementById(i);if(el)el.value='';});
+  document.getElementById('cp-overlay-enroll').classList.add('open');
+}
+async function saveManualEnrollment(){
+  const cid=document.getElementById('enr-class-sel').value;
+  const c=hubClasses.find(x=>x.id===cid)||hubDefaultClasses().find(x=>x.id===cid);
+  const name=document.getElementById('enr-stu-name').value.trim();
+  const email=document.getElementById('enr-stu-email').value.trim();
+  if(!name){ showToast('Enter the student’s name'); return; }
+  const enrollment={ student_name:name, student_email:email||null, student_phone:document.getElementById('enr-stu-phone').value.trim()||null,
+    class_id:cid, class_title:c?c.title:'Class', class_type:c?c.type:null, price:c?c.price:null,
+    supply_kit:false, status:document.getElementById('enr-stu-status').value, notes:document.getElementById('enr-stu-notes').value.trim()||null,
+    source:'hub', created_at:new Date().toISOString() };
+  if(CONFIGURED){
+    try{ const [saved]=await sb.insert('class_enrollments',enrollment); hubEnrollments.unshift(saved||enrollment); }
+    catch(e){ hubEnrollments.unshift({...enrollment,id:'local_'+Date.now()}); showToast('Saved locally (connect Supabase to sync)'); }
+  }else{ hubEnrollments.unshift({...enrollment,id:'local_'+Date.now()}); }
+  document.getElementById('cp-overlay-enroll').classList.remove('open');
+  showToast('🎓 Student booked','t-success');
+  renderClassEnrollments(); renderClassStats();
 }
 
 // ── DASHBOARD ──
@@ -2909,19 +3219,28 @@ function autoGenVariations(which) {
   if (!base) { showToast('Add the main photo first.','t-error'); return; }
   const buf = varBuf(which);
   const img = new Image();
+  // Allow reading pixels from images hosted on GitHub/remote origins — without
+  // this the canvas is "tainted" and toDataURL() throws, so Auto-create did
+  // nothing on saved pieces (whose photo is a remote URL). Fixed per feedback.
+  img.crossOrigin = 'anonymous';
   img.onload = () => {
     let made = 0;
-    VAR_PRESETS.forEach(preset => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width; canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.filter = preset.filter;
-      ctx.drawImage(img, 0, 0);
-      buf.push({ image: canvas.toDataURL('image/jpeg', 0.8), label: preset.label });
-      made++;
-    });
+    try {
+      VAR_PRESETS.forEach(preset => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width; canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.filter = preset.filter;
+        ctx.drawImage(img, 0, 0);
+        buf.push({ image: canvas.toDataURL('image/jpeg', 0.8), label: preset.label });
+        made++;
+      });
+    } catch (err) {
+      showToast('Couldn’t recolor this photo (image blocked cross-origin). Re-upload the main photo, then try again.','t-error');
+      return;
+    }
     renderVarStrip(which);
-    showToast(`✨ Created ${made} color variations`, 't-success');
+    showToast(`✨ Created ${made} color variations — remember to Save`, 't-success');
   };
   img.onerror = () => showToast('Could not read the main image.','t-error');
   img.src = base;
@@ -5562,9 +5881,78 @@ create table if not exists orders (
 alter table orders enable row level security;
 create policy "Public access" on orders for all using (true) with check (true);
 
+-- ── ONLINE CLASSES (Academy) ──────────────────────────────
+-- The website reads only classes with active=true. Cece manages what to
+-- offer, when (start_at) and the price from the hub's Classes tab.
+create table if not exists classes (
+  id           text primary key,          -- stable slug, e.g. 'cls-resin101'
+  created_at   timestamptz default now(),
+  track        int,                        -- learning-path order (1=Beginner … 4=Master)
+  active       boolean default true,       -- offered on the website?
+  title        text not null,
+  type         text default 'ondemand',    -- 'ondemand' | 'live'
+  level        text,                        -- Beginner | Intermediate | Advanced | Master
+  price        text,
+  blurb        text,
+  description  text,
+  image        text,
+  instructor   text default 'Cece',
+  duration     text,
+  start_at     timestamptz,                 -- live sessions only
+  join_url     text,                        -- Zoom / Meet / YouTube / Twitch link
+  seats        int,
+  seats_left   int,
+  materials    jsonb default '[]'::jsonb,   -- supply list (array of strings)
+  lessons      jsonb default '[]'::jsonb    -- [{title,duration,video_url,free_preview}]
+);
+alter table classes enable row level security;
+create policy "Public access" on classes for all using (true) with check (true);
+
+-- ── CLASS ENROLLMENTS (student bookings) ───────────────────
+create table if not exists class_enrollments (
+  id            uuid primary key default gen_random_uuid(),
+  created_at    timestamptz default now(),
+  class_id      text references classes(id) on delete set null,
+  class_title   text,
+  class_type    text,
+  student_name  text not null,
+  student_email text,
+  student_phone text,
+  price         text,
+  supply_kit    boolean default false,
+  status        text default 'pending',     -- pending | confirmed | cancelled
+  source        text default 'website',
+  notes         text
+);
+alter table class_enrollments enable row level security;
+create policy "Public access" on class_enrollments for all using (true) with check (true);
+
 -- ✅ Done! Go back to your app and refresh.
 
 -->
+
+<!-- BOOK A STUDENT MODAL -->
+<div class="cp-overlay" id="cp-overlay-enroll">
+  <div class="cp-modal">
+    <button class="cp-modal-close" onclick="document.getElementById('cp-overlay-enroll').classList.remove('open')">✕</button>
+    <div class="cp-modal-title">🧑‍🎓 Book a Student into a Class</div>
+    <div class="cp-modal-sub">Manually enroll someone — a phone booking, a gift, or a private-group guest.</div>
+    <div class="fg"><label class="flabel">Class</label><select class="fsel" id="enr-class-sel"></select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="fg"><label class="flabel">Student Name</label><input class="finput" id="enr-stu-name" placeholder="e.g. Sarah Johnson"></div>
+      <div class="fg"><label class="flabel">Email</label><input class="finput" id="enr-stu-email" placeholder="email@example.com"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="fg"><label class="flabel">Phone (optional)</label><input class="finput" id="enr-stu-phone" placeholder="(555) 000-0000"></div>
+      <div class="fg"><label class="flabel">Status</label><select class="fsel" id="enr-stu-status"><option value="pending">Pending payment</option><option value="confirmed">Confirmed / Paid</option></select></div>
+    </div>
+    <div class="fg"><label class="flabel">Notes (optional)</label><textarea class="ftarea" id="enr-stu-notes" rows="2" placeholder="Gift from…, supply kit, private group, etc."></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cp-overlay-enroll').classList.remove('open')">Cancel</button>
+      <button class="btn btn-amber btn-sm" onclick="saveManualEnrollment()">Book Student →</button>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════
      IEBC CONSULTANT PORTAL MODALS
