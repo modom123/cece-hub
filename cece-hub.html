@@ -9,8 +9,11 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-16_0140 UTC
-  CHANGE: 2026-09-16_0140 — Fixed "Auto-create color variations": it now sets
+  LAST UPDATED: 2026-09-16_0230 UTC
+  CHANGE: 2026-09-16_0230 — Removed the supply-kit field from class enrollments
+          (kits are not supplied) — dropped from the Book-a-Student form and the
+          classes schema.
+          2026-09-16_0140 — Fixed "Auto-create color variations": it now sets
           crossOrigin on the source image so recoloring works on saved pieces
           (remote photo URLs) instead of silently failing, with a clear error
           if an image is blocked. Added a "Preservation" category option to
@@ -2643,7 +2646,7 @@ async function saveManualEnrollment(){
   if(!name){ showToast('Enter the student’s name'); return; }
   const enrollment={ student_name:name, student_email:email||null, student_phone:document.getElementById('enr-stu-phone').value.trim()||null,
     class_id:cid, class_title:c?c.title:'Class', class_type:c?c.type:null, price:c?c.price:null,
-    supply_kit:false, status:document.getElementById('enr-stu-status').value, notes:document.getElementById('enr-stu-notes').value.trim()||null,
+    status:document.getElementById('enr-stu-status').value, notes:document.getElementById('enr-stu-notes').value.trim()||null,
     source:'hub', created_at:new Date().toISOString() };
   if(CONFIGURED){
     try{ const [saved]=await sb.insert('class_enrollments',enrollment); hubEnrollments.unshift(saved||enrollment); }
@@ -5919,7 +5922,6 @@ create table if not exists class_enrollments (
   student_email text,
   student_phone text,
   price         text,
-  supply_kit    boolean default false,
   status        text default 'pending',     -- pending | confirmed | cancelled
   source        text default 'website',
   notes         text
@@ -5946,7 +5948,7 @@ create policy "Public access" on class_enrollments for all using (true) with che
       <div class="fg"><label class="flabel">Phone (optional)</label><input class="finput" id="enr-stu-phone" placeholder="(555) 000-0000"></div>
       <div class="fg"><label class="flabel">Status</label><select class="fsel" id="enr-stu-status"><option value="pending">Pending payment</option><option value="confirmed">Confirmed / Paid</option></select></div>
     </div>
-    <div class="fg"><label class="flabel">Notes (optional)</label><textarea class="ftarea" id="enr-stu-notes" rows="2" placeholder="Gift from…, supply kit, private group, etc."></textarea></div>
+    <div class="fg"><label class="flabel">Notes (optional)</label><textarea class="ftarea" id="enr-stu-notes" rows="2" placeholder="Gift from…, private group, experience level, etc."></textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cp-overlay-enroll').classList.remove('open')">Cancel</button>
       <button class="btn btn-amber btn-sm" onclick="saveManualEnrollment()">Book Student →</button>

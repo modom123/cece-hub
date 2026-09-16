@@ -44,7 +44,6 @@ create table if not exists class_enrollments (
   student_email text,
   student_phone text,
   price         text,
-  supply_kit    boolean default false,
   status        text default 'pending',     -- pending | confirmed | cancelled
   source        text default 'website',
   notes         text
