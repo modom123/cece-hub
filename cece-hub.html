@@ -9,8 +9,13 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-16_0022 UTC
-  CHANGE: 2026-09-16_0022 — Added the Online Classes command center. New
+  LAST UPDATED: 2026-09-16_0140 UTC
+  CHANGE: 2026-09-16_0140 — Fixed "Auto-create color variations": it now sets
+          crossOrigin on the source image so recoloring works on saved pieces
+          (remote photo URLs) instead of silently failing, with a clear error
+          if an image is blocked. Added a "Preservation" category option to
+          the Publish and piece-edit category pickers.
+          2026-09-16_0022 — Added the Online Classes command center. New
           "Classes" tab (sidebar → Art & Sales) is the source of truth for
           the website Academy: toggle each class on/off to offer it, set the
           price inline, and for live workshops pick the date/time, seats and
@@ -636,7 +641,7 @@ tr:hover td{background:var(--bg)}
               <div style="font-size:.62rem;color:var(--muted);margin-bottom:12px;text-align:center">The Curator agent looks at your photo and fills the fields below. Review &amp; tweak before publishing.</div>
               <div class="form-row">
                 <div class="fg"><label class="flabel">Title *</label><input class="finput" id="f-title" placeholder='e.g. "Golden Resin Flow"'></div>
-                <div class="fg"><label class="flabel">Medium *</label><select class="fsel" id="f-type"><option value="">Select...</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Statement Panel</option><option>Seasonal Gift</option><option>Photography</option><option>Mixed Media</option></select></div>
+                <div class="fg"><label class="flabel">Medium *</label><select class="fsel" id="f-type"><option value="">Select...</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Preservation</option><option>Statement Panel</option><option>Seasonal Gift</option><option>Photography</option><option>Mixed Media</option></select></div>
                 <div class="fg"><label class="flabel">Price (USD) *</label><input class="finput" id="f-price" placeholder="e.g. 450" oninput="updateCaption()"></div>
                 <div class="fg"><label class="flabel">Dimensions</label><input class="finput" id="f-dims" placeholder='e.g. 12" × 16"'></div>
                 <div class="fg full"><label class="flabel">Materials</label><input class="finput" id="f-mats" placeholder="e.g. Epoxy resin, alcohol inks, gold leaf" oninput="updateCaption()"></div>
@@ -2000,7 +2005,7 @@ tr:hover td{background:var(--bg)}
         </div>
         <div class="fg"><label class="flabel">Title</label><input class="finput" id="pm-e-title" placeholder="Title"></div>
         <div class="form-row">
-          <div class="fg"><label class="flabel">Category</label><select class="fsel" id="pm-e-type"><option value="">Select…</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Statement Panel</option><option>Seasonal Gift</option><option>Photography</option><option>Mixed Media</option></select></div>
+          <div class="fg"><label class="flabel">Category</label><select class="fsel" id="pm-e-type"><option value="">Select…</option><option>Resin Art</option><option>Painting</option><option>Drawing</option><option>Sculpture</option><option>Memorial Piece</option><option>Preservation</option><option>Statement Panel</option><option>Seasonal Gift</option><option>Photography</option><option>Mixed Media</option></select></div>
           <div class="fg"><label class="flabel">Price ($)</label><input class="finput" id="pm-e-price" placeholder="e.g. 150"></div>
         </div>
         <div class="fg"><label class="flabel">Dimensions</label><input class="finput" id="pm-e-dims" placeholder="e.g. 12 × 16 in"></div>
@@ -3214,19 +3219,28 @@ function autoGenVariations(which) {
   if (!base) { showToast('Add the main photo first.','t-error'); return; }
   const buf = varBuf(which);
   const img = new Image();
+  // Allow reading pixels from images hosted on GitHub/remote origins — without
+  // this the canvas is "tainted" and toDataURL() throws, so Auto-create did
+  // nothing on saved pieces (whose photo is a remote URL). Fixed per feedback.
+  img.crossOrigin = 'anonymous';
   img.onload = () => {
     let made = 0;
-    VAR_PRESETS.forEach(preset => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width; canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.filter = preset.filter;
-      ctx.drawImage(img, 0, 0);
-      buf.push({ image: canvas.toDataURL('image/jpeg', 0.8), label: preset.label });
-      made++;
-    });
+    try {
+      VAR_PRESETS.forEach(preset => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width; canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.filter = preset.filter;
+        ctx.drawImage(img, 0, 0);
+        buf.push({ image: canvas.toDataURL('image/jpeg', 0.8), label: preset.label });
+        made++;
+      });
+    } catch (err) {
+      showToast('Couldn’t recolor this photo (image blocked cross-origin). Re-upload the main photo, then try again.','t-error');
+      return;
+    }
     renderVarStrip(which);
-    showToast(`✨ Created ${made} color variations`, 't-success');
+    showToast(`✨ Created ${made} color variations — remember to Save`, 't-success');
   };
   img.onerror = () => showToast('Could not read the main image.','t-error');
   img.src = base;
