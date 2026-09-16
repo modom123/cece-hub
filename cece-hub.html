@@ -9,8 +9,13 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-16_0430 UTC
-  CHANGE: 2026-09-16_0430 — Custom-piece deposits + balance invoicing. Pieces get
+  LAST UPDATED: 2026-09-16_0505 UTC
+  CHANGE: 2026-09-16_0505 — Payments dashboard: new "Revenue by Source" card
+          breaking out Art vs Classes vs Deposits (with a proportional bar and
+          total collected). Art = confirmed full-price sales + confirmed custom
+          pieces at final price; Classes = confirmed enrollments; Deposits =
+          down payments collected on custom pieces still in progress.
+          2026-09-16_0430 — Custom-piece deposits + balance invoicing. Pieces get
           a "Deposit" field (Publish + edit): Buy Now then charges that down
           payment and the piece is reserved (not sold). In Website Orders, a
           deposit order opens a panel to ADJUST THE FINAL PRICE and "Confirm &
@@ -830,6 +835,32 @@ tr:hover td{background:var(--bg)}
                 <strong>Stripe dashboard:</strong> <a href="https://dashboard.stripe.com" target="_blank" style="color:var(--teal)">dashboard.stripe.com</a><br>
                 <strong>Shopify orders:</strong> <a href="https://admin.shopify.com" target="_blank" style="color:var(--teal)">admin.shopify.com</a>
               </div>
+            </div>
+          </div>
+          <!-- Revenue by source: Art vs Classes vs Deposits -->
+          <div class="card">
+            <div class="card-head"><span class="card-title">💰 Revenue by Source</span><span style="font-size:.62rem;color:var(--muted)" id="rev-total">—</span></div>
+            <div class="card-body">
+              <div id="rev-bar" style="display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--bg);margin-bottom:16px">
+                <div id="rev-bar-art" style="width:0%;background:var(--green);transition:width .4s"></div>
+                <div id="rev-bar-class" style="width:0%;background:var(--teal);transition:width .4s"></div>
+                <div id="rev-bar-deposit" style="width:0%;background:var(--amber);transition:width .4s"></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--green-light);border-radius:8px">
+                  <span style="font-size:.78rem;display:flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:2px;background:var(--green);display:inline-block"></span>🖼 Art sales</span>
+                  <strong style="color:var(--green)" id="rev-art">—</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--teal-light);border-radius:8px">
+                  <span style="font-size:.78rem;display:flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:2px;background:var(--teal);display:inline-block"></span>🎓 Classes</span>
+                  <strong style="color:var(--teal)" id="rev-class">—</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--amber-light);border-radius:8px">
+                  <span style="font-size:.78rem;display:flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:2px;background:var(--amber);display:inline-block"></span>🎨 Deposits <span style="font-size:.62rem;color:var(--muted)">in progress</span></span>
+                  <strong style="color:var(--amber)" id="rev-deposit">—</strong>
+                </div>
+              </div>
+              <div style="margin-top:12px;font-size:.68rem;color:var(--muted);line-height:1.6">Confirmed art + class payments, plus deposits collected on custom pieces still being made (their balance lands in Art once paid).</div>
             </div>
           </div>
           <div class="card">
@@ -3585,6 +3616,38 @@ function refreshPayments() {
   document.getElementById('pay-sold-cnt').textContent = pieces.filter(p=>p.status==='sold').length+' pieces';
   document.getElementById('pay-total-cnt').textContent = pieces.length;
   populatePayPieceSel();
+  renderRevenueBySource();
+}
+
+// Art vs Classes vs Deposits. Art = confirmed full-price purchases + confirmed
+// custom pieces (counted at their final price). Classes = confirmed enrollments.
+// Deposits = down payments collected on custom pieces still in progress (their
+// balance moves into Art once the balance invoice is paid).
+async function renderRevenueBySource() {
+  let ords = orders, enrs = hubEnrollments;
+  if (CONFIGURED) {
+    try { ords = await sb.query('orders', { select:'*' }); orders = ords || orders; } catch(e) { ords = orders; }
+    try { enrs = await sb.query('class_enrollments', { select:'*' }); hubEnrollments = enrs || hubEnrollments; } catch(e) { enrs = hubEnrollments; }
+  }
+  let art = 0, cls = 0, dep = 0;
+  (ords || []).forEach(o => {
+    const price = parseFloat(o.price) || 0;
+    const st = o.status || '';
+    if (o.type === 'purchase' && st === 'confirmed') art += price;
+    else if (o.type === 'deposit') {
+      if (st === 'confirmed') { const p = pieces.find(x => x.id === o.piece_id); art += p ? (parseFloat(p.price) || price) : price; }
+      else if (/deposit-paid|balance-invoiced/.test(st)) dep += price;
+    }
+  });
+  (enrs || []).forEach(e => { if ((e.status || '') === 'confirmed') cls += parseFloat(e.price) || 0; });
+
+  const money = n => '$' + Math.round(n).toLocaleString();
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('rev-art', money(art)); set('rev-class', money(cls)); set('rev-deposit', money(dep));
+  set('rev-total', 'Total collected ' + money(art + cls + dep));
+  const total = art + cls + dep || 1;
+  const w = (id, v) => { const el = document.getElementById(id); if (el) el.style.width = (v / total * 100) + '%'; };
+  w('rev-bar-art', art); w('rev-bar-class', cls); w('rev-bar-deposit', dep);
 }
 
 function populatePayPieceSel() {
