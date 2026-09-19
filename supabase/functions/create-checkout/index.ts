@@ -10,10 +10,11 @@
 // Secrets: supabase secrets set STRIPE_SECRET_KEY=sk_live_...  SITE_URL=https://cecespieces.com
 //          (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided automatically)
 // ---------------------------------------------------------------------------
-import Stripe from "npm:stripe@17";
+// Deno-native Stripe build (Supabase's own examples use esm.sh ?target=deno).
+// The npm: build's default Node HTTP client fails in the edge runtime with
+// "An error occurred with our connection to Stripe".
+import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 
-// Deno's runtime needs Stripe's fetch-based HTTP client; the default Node
-// client fails with "An error occurred with our connection to Stripe".
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2024-06-20",
   httpClient: Stripe.createFetchHttpClient(),
@@ -47,9 +48,10 @@ Deno.serve(async (req) => {
     // ─────────────────────────── CLASS PURCHASE ───────────────────────────
     if (class_id) {
       const r = await db(`classes?id=eq.${encodeURIComponent(class_id)}&select=id,title,price,active,type,seats_left`);
-      const rows = await r.json();
+      const rawText = await r.text();
+      let rows: unknown; try { rows = JSON.parse(rawText); } catch { rows = null; }
       const cls = Array.isArray(rows) ? rows[0] : null;
-      if (!cls) return json({ error: "Class not found" }, 404);
+      if (!cls) return json({ error: "Class not found", _dbg: { db_status: r.status, db_body: rawText.slice(0, 300), project: SUPABASE_URL } }, 404);
       if (cls.active === false) return json({ error: "This class isn't open for enrollment right now." }, 409);
       if (cls.type === "live" && cls.seats_left != null && Number(cls.seats_left) <= 0)
         return json({ error: "This live class is full — join the waitlist." }, 409);
@@ -103,9 +105,10 @@ Deno.serve(async (req) => {
     if (!piece_id) return json({ error: "Missing piece_id or class_id" }, 400);
 
     const r = await db(`pieces?id=eq.${encodeURIComponent(piece_id)}&select=id,title,price,status,deposit`);
-    const rows = await r.json();
+    const rawText = await r.text();
+    let rows: unknown; try { rows = JSON.parse(rawText); } catch { rows = null; }
     const piece = Array.isArray(rows) ? rows[0] : null;
-    if (!piece) return json({ error: "Piece not found" }, 404);
+    if (!piece) return json({ error: "Piece not found", _dbg: { db_status: r.status, db_body: rawText.slice(0, 300), project: SUPABASE_URL } }, 404);
     if (piece.status === "sold") return json({ error: "This piece has already sold." }, 409);
 
     const priceC   = Math.round((parseFloat(piece.price) || 0) * 100);
