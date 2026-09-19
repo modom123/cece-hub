@@ -49,6 +49,27 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { piece_id, class_id, student_name, student_email } = body;
 
+    // ── PROBE: POST {"_ping":true} — reports key shape + raw Stripe reachability
+    if (body._ping) {
+      const raw = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+      const clean = raw.replace(/\s+/g, "");
+      const out: Record<string, unknown> = {
+        raw_len: raw.length,
+        clean_len: clean.length,
+        had_whitespace: raw.length !== clean.length,
+        starts: clean.slice(0, 8),
+        ends: clean.slice(-4),
+      };
+      try {
+        const g = await fetch("https://api.stripe.com/v1/balance", {
+          headers: { Authorization: `Bearer ${clean}` },
+        });
+        out.stripe_status = g.status;
+        out.stripe_body = (await g.text()).slice(0, 150);
+      } catch (e) { out.stripe_fetch_error = String((e as Error)?.message || e); }
+      return json(out);
+    }
+
 
     // ─────────────────────────── CLASS PURCHASE ───────────────────────────
     if (class_id) {
