@@ -15,7 +15,10 @@
 // "An error occurred with our connection to Stripe".
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
+// .trim() guards against a stray newline/space in the stored secret, which
+// otherwise makes an invalid "Bearer \n..." header and looks like a Stripe
+// connection error.
+const stripe = new Stripe((Deno.env.get("STRIPE_SECRET_KEY") ?? "").trim(), {
   apiVersion: "2024-06-20",
   httpClient: Stripe.createFetchHttpClient(),
 });
@@ -45,32 +48,13 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { piece_id, class_id, student_name, student_email } = body;
 
-    // ── CONNECTIVITY PROBE (diagnostic) ──────────────────────────────────
-    // POST {"_ping":true} to test raw egress: does the function reach Stripe's
-    // API at all (bypassing the SDK), and does it reach the public internet?
-    if (body._ping) {
-      const out: Record<string, unknown> = {};
-      try {
-        const g = await fetch("https://api.stripe.com/v1/balance", {
-          headers: { Authorization: `Bearer ${Deno.env.get("STRIPE_SECRET_KEY")}` },
-        });
-        out.stripe_status = g.status;
-        out.stripe_body = (await g.text()).slice(0, 200);
-      } catch (e) { out.stripe_fetch_error = String((e as Error)?.message || e); }
-      try {
-        const h = await fetch("https://api.github.com/zen");
-        out.internet_status = h.status;
-      } catch (e) { out.internet_error = String((e as Error)?.message || e); }
-      return json(out);
-    }
 
     // ─────────────────────────── CLASS PURCHASE ───────────────────────────
     if (class_id) {
       const r = await db(`classes?id=eq.${encodeURIComponent(class_id)}&select=id,title,price,active,type,seats_left`);
-      const rawText = await r.text();
-      let rows: unknown; try { rows = JSON.parse(rawText); } catch { rows = null; }
+      const rows = await r.json();
       const cls = Array.isArray(rows) ? rows[0] : null;
-      if (!cls) return json({ error: "Class not found", _dbg: { db_status: r.status, db_body: rawText.slice(0, 300), project: SUPABASE_URL } }, 404);
+      if (!cls) return json({ error: "Class not found" }, 404);
       if (cls.active === false) return json({ error: "This class isn't open for enrollment right now." }, 409);
       if (cls.type === "live" && cls.seats_left != null && Number(cls.seats_left) <= 0)
         return json({ error: "This live class is full — join the waitlist." }, 409);
@@ -124,10 +108,9 @@ Deno.serve(async (req) => {
     if (!piece_id) return json({ error: "Missing piece_id or class_id" }, 400);
 
     const r = await db(`pieces?id=eq.${encodeURIComponent(piece_id)}&select=id,title,price,status,deposit`);
-    const rawText = await r.text();
-    let rows: unknown; try { rows = JSON.parse(rawText); } catch { rows = null; }
+    const rows = await r.json();
     const piece = Array.isArray(rows) ? rows[0] : null;
-    if (!piece) return json({ error: "Piece not found", _dbg: { db_status: r.status, db_body: rawText.slice(0, 300), project: SUPABASE_URL } }, 404);
+    if (!piece) return json({ error: "Piece not found" }, 404);
     if (piece.status === "sold") return json({ error: "This piece has already sold." }, 409);
 
     const priceC   = Math.round((parseFloat(piece.price) || 0) * 100);

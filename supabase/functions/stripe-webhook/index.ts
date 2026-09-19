@@ -20,7 +20,7 @@ import Stripe from "npm:stripe@17";
 
 // Deno's runtime needs Stripe's fetch-based HTTP client; the default Node
 // client fails with "An error occurred with our connection to Stripe".
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
+const stripe = new Stripe((Deno.env.get("STRIPE_SECRET_KEY") ?? "").trim(), {
   apiVersion: "2024-06-20",
   httpClient: Stripe.createFetchHttpClient(),
 });
