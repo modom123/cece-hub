@@ -15,10 +15,11 @@
 // "An error occurred with our connection to Stripe".
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 
-// .trim() guards against a stray newline/space in the stored secret, which
-// otherwise makes an invalid "Bearer \n..." header and looks like a Stripe
-// connection error.
-const stripe = new Stripe((Deno.env.get("STRIPE_SECRET_KEY") ?? "").trim(), {
+// Strip ALL whitespace from the secret. Pasting the long key into a terminal
+// can wrap and inject a newline anywhere (even mid-key); any whitespace makes
+// an invalid Authorization header that surfaces as a Stripe "connection error".
+// Stripe keys never contain whitespace, so removing it all is safe.
+const stripe = new Stripe((Deno.env.get("STRIPE_SECRET_KEY") ?? "").replace(/\s+/g, ""), {
   apiVersion: "2024-06-20",
   httpClient: Stripe.createFetchHttpClient(),
 });

@@ -28,11 +28,11 @@ function Get-Body($err) {
 $allPieces = Invoke-RestMethod "$SUPA/rest/v1/pieces?select=id,title,price" -Headers $h
 $priced = @($allPieces | Where-Object { $_.price })
 $p = $priced[0]
-$pid = [string]$p.id
+$pieceId = [string]$p.id
 Write-Host "`n=== Testing PIECE ===" -ForegroundColor Cyan
-Write-Host ("  sending piece_id: {0}  ({1})" -f $pid, $p.title)
+Write-Host ("  sending piece_id: {0}  ({1})" -f $pieceId, $p.title)
 try {
-  $r1 = Invoke-RestMethod "$SUPA/functions/v1/create-checkout" -Method Post -Headers $h -ContentType "application/json" -Body (@{ piece_id = $pid } | ConvertTo-Json)
+  $r1 = Invoke-RestMethod "$SUPA/functions/v1/create-checkout" -Method Post -Headers $h -ContentType "application/json" -Body (@{ piece_id = $pieceId } | ConvertTo-Json)
   Write-Host ("  PIECE CHECKOUT OK -> {0}" -f $r1.url) -ForegroundColor Green
 } catch { Write-Host ("  PIECE ERROR: " + (Get-Body $_)) -ForegroundColor Red }
 
