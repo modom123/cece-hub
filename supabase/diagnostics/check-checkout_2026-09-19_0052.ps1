@@ -33,9 +33,21 @@ try {
   Write-Host ("  CHECKOUT OK -> {0}" -f $res.url) -ForegroundColor Green
   Write-Host "`n  SUCCESS. Hard-refresh the website (Ctrl+Shift+R) and Buy Now will go to Stripe." -ForegroundColor Green
 } catch {
-  Write-Host "  CHECKOUT ERROR:" -ForegroundColor Red
-  if ($_.ErrorDetails.Message) { Write-Host ("  " + $_.ErrorDetails.Message) -ForegroundColor Red }
-  else { Write-Host ("  " + $_.Exception.Message) -ForegroundColor Red }
-  Write-Host "`n  If it mentions 'Invalid API Key' that is STRIPE rejecting STRIPE_SECRET_KEY." -ForegroundColor Yellow
-  Write-Host "  Set a real key: supabase secrets set STRIPE_SECRET_KEY=sk_live_or_rk_live_...  then re-run." -ForegroundColor Yellow
+  Write-Host "  CHECKOUT ERROR (raw response body):" -ForegroundColor Red
+  $msg = $null
+  if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $msg = $_.ErrorDetails.Message }
+  if (-not $msg -and $_.Exception.Response) {
+    try {
+      $stream = $_.Exception.Response.GetResponseStream()
+      $stream.Position = 0
+      $reader = New-Object System.IO.StreamReader($stream)
+      $msg = $reader.ReadToEnd()
+    } catch { }
+  }
+  if (-not $msg) { $msg = $_.Exception.Message }
+  Write-Host ("  " + $msg) -ForegroundColor Red
+  Write-Host "`n  Reading the message above:" -ForegroundColor Yellow
+  Write-Host "   - 'Invalid API Key'         -> STRIPE_SECRET_KEY is wrong/placeholder; set the real sk_live_ / rk_live_ and re-run." -ForegroundColor Yellow
+  Write-Host "   - '...does not have access'  -> your restricted key lacks 'Checkout Sessions: Write'; fix its permissions in Stripe." -ForegroundColor Yellow
+  Write-Host "   - 'No such...' / other       -> paste it to Claude." -ForegroundColor Yellow
 }
