@@ -45,6 +45,25 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { piece_id, class_id, student_name, student_email } = body;
 
+    // ── CONNECTIVITY PROBE (diagnostic) ──────────────────────────────────
+    // POST {"_ping":true} to test raw egress: does the function reach Stripe's
+    // API at all (bypassing the SDK), and does it reach the public internet?
+    if (body._ping) {
+      const out: Record<string, unknown> = {};
+      try {
+        const g = await fetch("https://api.stripe.com/v1/balance", {
+          headers: { Authorization: `Bearer ${Deno.env.get("STRIPE_SECRET_KEY")}` },
+        });
+        out.stripe_status = g.status;
+        out.stripe_body = (await g.text()).slice(0, 200);
+      } catch (e) { out.stripe_fetch_error = String((e as Error)?.message || e); }
+      try {
+        const h = await fetch("https://api.github.com/zen");
+        out.internet_status = h.status;
+      } catch (e) { out.internet_error = String((e as Error)?.message || e); }
+      return json(out);
+    }
+
     // ─────────────────────────── CLASS PURCHASE ───────────────────────────
     if (class_id) {
       const r = await db(`classes?id=eq.${encodeURIComponent(class_id)}&select=id,title,price,active,type,seats_left`);
