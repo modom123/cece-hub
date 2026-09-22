@@ -9,7 +9,15 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-16_0545 UTC
+  LAST UPDATED: 2026-09-22_2346 UTC
+  CHANGE: 2026-09-22_2346 — AI + variations pass: updated the Anthropic model to
+          claude-sonnet-5 (Curator, Sales, Marketing & all agents) so the
+          Curator's vision copy reliably works. Auto-create color variations is
+          now far more robust/dynamic — 10 colorways spanning the hue wheel plus
+          duotone/noir looks (was 5 flat shades). NOTE: these are fast on-device
+          recolors; a TRUE generative re-render needs an image-editing API
+          (Claude is vision+text only, can't generate images) — documented in
+          the VAR_PRESETS comment for a future Edge Function.
   CHANGE: 2026-09-16_0545 — Photo Studio: a built-in photo enhancer for piece
           photos. One-click Auto-Enhance plus sliders (brightness, contrast,
           saturation, warmth, sharpen, vignette) and preset looks (Bright &
@@ -3155,7 +3163,7 @@ async function askClaude({ system, messages, maxTokens }) {
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true'
       },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: maxTokens || 1500, system, messages })
+      body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: maxTokens || 1500, system, messages })
     });
   } catch(e) {
     throw new Error('Couldn\'t reach Anthropic — check your internet connection and try again.');
@@ -3370,16 +3378,26 @@ Known details — medium: ${type||'unknown'}; price: ${price||'unknown'}.`;
 let variationsBuf = [];    // buffer for the publish form
 let pmVariationsBuf = [];   // buffer for the piece-edit modal
 
-// Color presets for the auto-generator (canvas re-tint of the main photo).
-// Note: these are algorithmic colorways, not a generative image model. To
-// wire in a true text-to-image AI later, replace autoGenVariations() with a
-// call to a Supabase Edge Function that holds the image-API key server-side.
+// Colorways for the auto-generator (canvas re-tint of the main photo). A
+// robust, dynamic spread across the hue wheel plus stylized duotone/noir
+// looks — far richer than a few flat shades.
+// NOTE: these are fast, free, on-device algorithmic recolors — not a
+// generative image model. For a TRUE AI re-render that repaints the piece in
+// a new palette (keeping form + texture), wire autoGenVariations() to an
+// image-editing API (img2img/inpaint) behind a Supabase Edge Function that
+// holds the image key server-side. Claude/Anthropic is vision+text only and
+// cannot generate images, so it can't do this step.
 const VAR_PRESETS = [
-  { label:'Amber Glow', filter:'hue-rotate(-18deg) saturate(1.3) brightness(1.05)' },
-  { label:'Ocean Teal', filter:'hue-rotate(160deg) saturate(1.15)' },
-  { label:'Rose Blush', filter:'hue-rotate(300deg) saturate(1.12) brightness(1.03)' },
-  { label:'Emerald',    filter:'hue-rotate(95deg) saturate(1.2)' },
-  { label:'Noir',       filter:'grayscale(1) contrast(1.12)' }
+  { label:'Amber Glow',    filter:'sepia(.35) hue-rotate(-20deg) saturate(1.5) brightness(1.06)' },
+  { label:'Golden Hour',   filter:'sepia(.5) saturate(1.7) hue-rotate(-12deg) brightness(1.08)' },
+  { label:'Sunset Coral',  filter:'hue-rotate(-6deg) saturate(1.6) brightness(1.05)' },
+  { label:'Rose Quartz',   filter:'hue-rotate(310deg) saturate(1.32) brightness(1.05)' },
+  { label:'Royal Violet',  filter:'hue-rotate(255deg) saturate(1.4)' },
+  { label:'Sapphire Blue', filter:'hue-rotate(205deg) saturate(1.5) brightness(1.03)' },
+  { label:'Ocean Teal',    filter:'hue-rotate(160deg) saturate(1.35)' },
+  { label:'Emerald',       filter:'hue-rotate(95deg) saturate(1.45)' },
+  { label:'Onyx & Silver', filter:'grayscale(1) contrast(1.18) brightness(1.02)' },
+  { label:'Moody Noir',    filter:'grayscale(.6) contrast(1.25) brightness(.92) saturate(1.1)' }
 ];
 
 // Normalize a piece's stored variations into an array of { image, label }.
@@ -5651,7 +5669,7 @@ async function cpSend() {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
         max_tokens: 1500,
         system: c.system,
         messages: history
