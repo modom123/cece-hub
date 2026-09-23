@@ -563,6 +563,7 @@ tr:hover td{background:var(--bg)}
     <button class="nav-btn" onclick="goPage('commissions',this)"><span class="ico">🧩</span>Commissions</button>
     <button class="nav-btn" onclick="goPage('newsletter',this)"><span class="ico">📰</span>Studio Drop</button>
     <button class="nav-btn" onclick="goPage('payments',this)"><span class="ico">💳</span>Payments</button>
+    <button class="nav-btn" onclick="goPage('pricing',this)"><span class="ico">🧮</span>Pricing Calculator</button>
     <button class="nav-btn" onclick="goPage('orders',this)"><span class="ico">🛒</span>Website Orders</button>
   </div>
   <hr class="sb-divider">
@@ -1104,6 +1105,7 @@ tr:hover td{background:var(--bg)}
     <div class="page" id="page-pourdays"><div id="pd-root"></div></div>
     <div class="page" id="page-commissions"><div id="cp-root"></div></div>
     <div class="page" id="page-newsletter"><div id="nl-root"></div></div>
+    <div class="page" id="page-pricing"><div id="pr-root"></div></div>
 
     <div class="page" id="page-crm">
       <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
@@ -2490,6 +2492,7 @@ const pmeta = {
   pourdays:    { t:'Studio Calendar', s:'Pour Days, cure windows & commission deadlines — paced for your flow.' },
   commissions: { t:'Commission Pipeline', s:'Every custom & memorial piece, from inquiry to delivered.' },
   newsletter:  { t:'Studio Drop', s:'Your subscriber list + compose the monthly newsletter.' },
+  pricing:     { t:'Pricing Calculator', s:'Price originals by the square inch — materials, frame & commission fee built in.' },
   payments:    { t:'Payments', s:'Get paid via Stripe, Venmo, Cash App, or invoice.' },
   crm:         { t:'Contacts & CRM', s:'Track every lead and customer.' },
   social:      { t:'Social Media', s:'Captions, hashtags, and strategy.' },
@@ -2514,6 +2517,7 @@ function goPage(id, btn) {
   if (id === 'pourdays')    renderPourDays();
   if (id === 'commissions') renderCommissions();
   if (id === 'newsletter')  renderNewsletter();
+  if (id === 'pricing')     renderPricing();
   if (id === 'orders')      renderOrders();
   if (id === 'collection')  renderCollection();
   if (id === 'crm')         renderCRM();
@@ -4282,6 +4286,103 @@ async function renderNewsletter(){
 function nlCopyEmails(){ const e=(nlSubs||[]).map(s=>s.email).filter(Boolean).join(', '); if(navigator.clipboard) navigator.clipboard.writeText(e); showToast('Emails copied','t-success'); }
 function nlCopyBody(){ const b=document.getElementById('nl-body').value; if(navigator.clipboard) navigator.clipboard.writeText(b); showToast('Newsletter text copied','t-success'); }
 function nlSend(){ const subj=encodeURIComponent(document.getElementById('nl-subject').value); const body=encodeURIComponent(document.getElementById('nl-body').value); const bcc=(nlSubs||[]).map(s=>s.email).filter(Boolean).join(','); window.open(`mailto:?bcc=${encodeURIComponent(bcc)}&subject=${subj}&body=${body}`); }
+
+
+// ══════════════════════════════════════════════════════════════
+// PRICING CALCULATOR — square-inch formula from the business plan
+// (L × W) × rate + materials (+ frame) + optional 15% commission fee
+// ══════════════════════════════════════════════════════════════
+function prNum(id){ const el=document.getElementById(id); const v=parseFloat(el&&el.value); return isNaN(v)?0:v; }
+function prSetRate(v){ const el=document.getElementById('pr-rate'); if(el) el.value=v; document.querySelectorAll('#pr-rate-presets .btn').forEach(b=>b.classList.remove('btn-amber')); const b=document.getElementById('pr-rate-'+String(v).replace('.','_')); if(b) b.classList.add('btn-amber'); prCalc(); }
+function prCalc(){
+  const L=prNum('pr-l'), W=prNum('pr-w'), rate=prNum('pr-rate'), mat=prNum('pr-mat'), frame=prNum('pr-frame');
+  const commission=document.getElementById('pr-commission');
+  const isComm=commission&&commission.checked;
+  const sqin=L*W;
+  const base=sqin*rate;
+  const subtotal=base+mat+frame;
+  const fee=isComm?subtotal*0.15:0;
+  const total=subtotal+fee;
+  const deposit=total*0.5;
+  const per=v=>'$'+(Math.round(v*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set('pr-sqin', sqin?sqin.toLocaleString()+' sq in':'—');
+  set('pr-base', per(base));
+  set('pr-mat-out', per(mat));
+  set('pr-frame-out', per(frame));
+  set('pr-fee-row', isComm?'':'none');
+  const feeRow=document.getElementById('pr-fee-row'); if(feeRow) feeRow.style.display=isComm?'flex':'none';
+  set('pr-fee', per(fee));
+  set('pr-total', per(total));
+  set('pr-deposit', per(deposit));
+  set('pr-balance', per(total-deposit));
+}
+function prCopy(){
+  const t=document.getElementById('pr-total').textContent;
+  if(navigator.clipboard) navigator.clipboard.writeText(t.replace('$',''));
+  showToast('Price copied — paste it into the piece or a quote','t-success');
+}
+function renderPricing(){
+  const root=document.getElementById('pr-root'); if(!root) return;
+  const rateBtn=(v,lbl)=>`<button class="btn btn-ghost btn-sm" id="pr-rate-${String(v).replace('.','_')}" onclick="prSetRate(${v})">${lbl}</button>`;
+  root.innerHTML=`
+  <div style="display:grid;grid-template-columns:1.05fr .95fr;gap:18px;align-items:start">
+    <div class="card">
+      <div style="font-size:.9rem;font-weight:700;margin-bottom:12px">Size & rate</div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <div style="flex:1"><label style="font-size:.66rem;color:var(--muted);font-weight:600">Length (in)</label><input id="pr-l" class="finput" type="number" min="0" step="0.5" value="16" oninput="prCalc()"></div>
+        <div style="flex:1"><label style="font-size:.66rem;color:var(--muted);font-weight:600">Width (in)</label><input id="pr-w" class="finput" type="number" min="0" step="0.5" value="20" oninput="prCalc()"></div>
+      </div>
+      <label style="font-size:.66rem;color:var(--muted);font-weight:600">Rate ($ / sq in)</label>
+      <input id="pr-rate" class="finput" type="number" min="0" step="0.25" value="2.50" oninput="prCalc()" style="margin-bottom:8px">
+      <div id="pr-rate-presets" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+        <span style="font-size:.6rem;color:var(--muted);align-self:center;font-weight:700">Emerging:</span>
+        ${rateBtn(1.5,'$1.50')}${rateBtn(2,'$2.00')}${rateBtn(2.5,'$2.50')}
+        <span style="font-size:.6rem;color:var(--muted);align-self:center;font-weight:700;margin-left:6px">Established:</span>
+        ${rateBtn(3,'$3.00')}${rateBtn(3.5,'$3.50')}${rateBtn(4,'$4.00')}
+      </div>
+      <div style="border-top:1px solid var(--border);margin:12px 0"></div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <div style="flex:1"><label style="font-size:.66rem;color:var(--muted);font-weight:600">Materials cost ($)</label><input id="pr-mat" class="finput" type="number" min="0" step="1" value="0" oninput="prCalc()"></div>
+        <div style="flex:1"><label style="font-size:.66rem;color:var(--muted);font-weight:600">Frame add-on ($)</label><input id="pr-frame" class="finput" type="number" min="0" step="1" value="0" oninput="prCalc()"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:.74rem;font-weight:600;cursor:pointer"><input id="pr-commission" type="checkbox" onchange="prCalc()"> Custom commission (+15% design fee)</label>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card" style="background:var(--amber-light);border:1px solid var(--amber)">
+        <div style="font-size:.72rem;color:var(--muted);font-weight:700">Retail price</div>
+        <div id="pr-total" style="font-family:'Playfair Display',serif;font-size:2.4rem;font-weight:700;color:var(--amber);line-height:1.1">$0.00</div>
+        <div style="font-size:.66rem;color:var(--muted)"><span id="pr-sqin">—</span></div>
+        <button class="btn btn-amber btn-full btn-sm" style="margin-top:10px" onclick="prCopy()">Copy price</button>
+      </div>
+      <div class="card">
+        <div style="font-size:.8rem;font-weight:700;margin-bottom:8px">Breakdown</div>
+        <div style="display:flex;justify-content:space-between;font-size:.74rem;padding:4px 0"><span style="color:var(--muted)">Base (L × W × rate)</span><span id="pr-base">$0.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:.74rem;padding:4px 0"><span style="color:var(--muted)">Materials</span><span id="pr-mat-out">$0.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:.74rem;padding:4px 0"><span style="color:var(--muted)">Frame</span><span id="pr-frame-out">$0.00</span></div>
+        <div id="pr-fee-row" style="display:none;justify-content:space-between;font-size:.74rem;padding:4px 0"><span style="color:var(--muted)">Design fee (15%)</span><span id="pr-fee">$0.00</span></div>
+        <div style="border-top:1px solid var(--border);margin:6px 0"></div>
+        <div style="display:flex;justify-content:space-between;font-size:.74rem;padding:4px 0"><span style="color:var(--muted)">50% deposit to start</span><span id="pr-deposit" style="font-weight:700">$0.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:.74rem;padding:4px 0"><span style="color:var(--muted)">Balance due</span><span id="pr-balance">$0.00</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div style="font-size:.8rem;font-weight:700;margin-bottom:8px">Quick reference (from your 2026 price list)</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:.68rem">
+      <span style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px">Small (8×8 / 10×10): <b>$125–175</b></span>
+      <span style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px">Statement (16×20): <b>$350–450</b></span>
+      <span style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px">Gallery (24×36+): <b>$850+</b></span>
+      <span style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px">Preservation block: <b>$150–400</b></span>
+      <span style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px">Memory hearts / ornaments: <b>$45–65</b></span>
+      <span style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px">Grounding (worry stones): <b>$25</b></span>
+    </div>
+    <div style="font-size:.62rem;color:var(--muted);margin-top:8px">Formula: (Length × Width) × rate + materials (+ frame), plus a 15% design fee on custom commissions. Preservation & small tokens are usually flat-priced from the ranges above.</div>
+  </div>`;
+  prCalc();
+}
 
 
 // ── EMAIL TEMPLATES ──
