@@ -559,6 +559,9 @@ tr:hover td{background:var(--bg)}
     <button class="nav-btn" onclick="goPage('collection',this)"><span class="ico">🖼</span>My Collection</button>
     <button class="nav-btn" onclick="goPage('rentals',this)"><span class="ico">🎪</span>Rentals</button>
     <button class="nav-btn" onclick="goPage('classes',this)"><span class="ico">🎓</span>Classes</button>
+    <button class="nav-btn" onclick="goPage('pourdays',this)"><span class="ico">🗓️</span>Studio Calendar</button>
+    <button class="nav-btn" onclick="goPage('commissions',this)"><span class="ico">🧩</span>Commissions</button>
+    <button class="nav-btn" onclick="goPage('newsletter',this)"><span class="ico">📰</span>Studio Drop</button>
     <button class="nav-btn" onclick="goPage('payments',this)"><span class="ico">💳</span>Payments</button>
     <button class="nav-btn" onclick="goPage('orders',this)"><span class="ico">🛒</span>Website Orders</button>
   </div>
@@ -1098,6 +1101,10 @@ tr:hover td{background:var(--bg)}
     </div>
 
     <!-- CRM -->
+    <div class="page" id="page-pourdays"><div id="pd-root"></div></div>
+    <div class="page" id="page-commissions"><div id="cp-root"></div></div>
+    <div class="page" id="page-newsletter"><div id="nl-root"></div></div>
+
     <div class="page" id="page-crm">
       <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
         <div class="crm-filters" style="margin-bottom:0">
@@ -2480,6 +2487,9 @@ const pmeta = {
   collection:  { t:'My Collection', s:'All your original pieces.' },
   rentals:     { t:'Rentals', s:'Birthdays, weddings, house staging & more.' },
   classes:     { t:'Online Classes', s:'Choose what to offer, schedule live sessions, set prices & book students.' },
+  pourdays:    { t:'Studio Calendar', s:'Pour Days, cure windows & commission deadlines — paced for your flow.' },
+  commissions: { t:'Commission Pipeline', s:'Every custom & memorial piece, from inquiry to delivered.' },
+  newsletter:  { t:'Studio Drop', s:'Your subscriber list + compose the monthly newsletter.' },
   payments:    { t:'Payments', s:'Get paid via Stripe, Venmo, Cash App, or invoice.' },
   crm:         { t:'Contacts & CRM', s:'Track every lead and customer.' },
   social:      { t:'Social Media', s:'Captions, hashtags, and strategy.' },
@@ -2501,6 +2511,9 @@ function goPage(id, btn) {
   if (id === 'dashboard')   refreshDash();
   if (id === 'rentals')     renderRentals();
   if (id === 'classes')     renderClassesAdmin();
+  if (id === 'pourdays')    renderPourDays();
+  if (id === 'commissions') renderCommissions();
+  if (id === 'newsletter')  renderNewsletter();
   if (id === 'orders')      renderOrders();
   if (id === 'collection')  renderCollection();
   if (id === 'crm')         renderCRM();
@@ -4123,6 +4136,153 @@ function buildHashtags() {
   ];
   document.getElementById('soc-hash-list').innerHTML = banks.map((b,i)=>`<div style="border:1.5px solid var(--border);border-radius:9px;overflow:hidden;background:var(--white)"><div style="padding:8px 13px;background:var(--bg);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;border-left:3px solid ${b.c}"><span style="font-size:.75rem;font-weight:700">${b.l}</span><button class="copy-btn" id="hb${i}" onclick="cpText('${encodeURIComponent(b.t)}','hb${i}')">Copy</button></div><div style="padding:10px 13px;font-size:.68rem;line-height:1.9;color:var(--teal)">${b.t}</div></div>`).join('');
 }
+
+// ══════════════════════════════════════════════════════════════
+// STUDIO CALENDAR — Pour Days & deadlines (per-device, localStorage)
+// ══════════════════════════════════════════════════════════════
+let pdView = (function(){ const d = new Date(); d.setDate(1); return d; })();
+function pdLS(k){ try { return JSON.parse(localStorage.getItem(k)) || []; } catch(e){ return []; } }
+function pdSave(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+function pdKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function pdShift(n){ pdView.setMonth(pdView.getMonth()+n); renderPourDays(); }
+function pdTogglePour(key){ const a=pdLS('cece_pour_days'); const i=a.indexOf(key); if(i>=0)a.splice(i,1); else a.push(key); pdSave('cece_pour_days',a); renderPourDays(); }
+function pdAddDeadline(){ const dt=document.getElementById('pd-dl-date').value; const lb=(document.getElementById('pd-dl-label').value||'').trim(); if(!dt||!lb){ showToast('Add a date and a label.','t-error'); return; } const a=pdLS('cece_deadlines'); a.push({date:dt,label:lb}); pdSave('cece_deadlines',a); renderPourDays(); }
+function pdDelDeadline(i){ const a=pdLS('cece_deadlines'); a.splice(i,1); pdSave('cece_deadlines',a); renderPourDays(); }
+
+function renderPourDays(){
+  const root=document.getElementById('pd-root'); if(!root) return;
+  const pours=pdLS('cece_pour_days'), dls=pdLS('cece_deadlines');
+  const dlByDay={}; dls.forEach((d)=>{ (dlByDay[d.date]=dlByDay[d.date]||[]).push(d); });
+  const y=pdView.getFullYear(), m=pdView.getMonth();
+  const start=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
+  const monthName=pdView.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  const todayKey=pdKey(new Date());
+  let cells='';
+  for(let i=0;i<start;i++) cells+='<div></div>';
+  for(let d=1; d<=days; d++){
+    const key=pdKey(new Date(y,m,d));
+    const isPour=pours.includes(key), isToday=key===todayKey, dl=dlByDay[key];
+    cells+=`<div onclick="pdTogglePour('${key}')" title="Click to toggle a Pour Day" style="min-height:62px;border:1px solid var(--border);border-radius:8px;padding:5px 6px;cursor:pointer;background:${isPour?'var(--amber-light)':'var(--white)'};position:relative;${isToday?'box-shadow:0 0 0 2px var(--teal) inset;':''}">`
+      +`<div style="font-size:.7rem;font-weight:700;color:${isPour?'var(--amber)':'var(--muted)'}">${d}${isPour?' 🎨':''}</div>`
+      +(dl?dl.map(x=>`<div title="${(x.label||'').replace(/"/g,'&quot;')}" style="font-size:.55rem;margin-top:2px;background:var(--teal-light);color:var(--teal);border-radius:4px;padding:1px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">⏳ ${x.label}</div>`).join(''):'')
+      +`</div>`;
+  }
+  const now=new Date(); now.setHours(0,0,0,0);
+  const up=[];
+  pours.forEach(k=>{ if(new Date(k+'T00:00:00')>=now) up.push({date:k,type:'pour',label:'Pour Day'}); });
+  dls.forEach((x,i)=>{ if(new Date(x.date+'T00:00:00')>=now) up.push({date:x.date,type:'dl',label:x.label,_i:i}); });
+  up.sort((a,b)=> a.date<b.date?-1:1);
+  const upHtml = up.length ? up.slice(0,12).map(u=>{
+    const nice=new Date(u.date+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+    return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)"><span style="font-size:1rem">${u.type==='pour'?'🎨':'⏳'}</span><div style="flex:1"><div style="font-size:.76rem;font-weight:600">${u.label}</div><div style="font-size:.64rem;color:var(--muted)">${nice}</div></div>${u.type==='dl'?`<button class="btn btn-ghost btn-xs" onclick="pdDelDeadline(${u._i})">✕</button>`:''}</div>`;
+  }).join('') : '<div style="font-size:.72rem;color:var(--muted);padding:8px 0">No upcoming Pour Days or deadlines yet.</div>';
+
+  root.innerHTML=`
+  <div style="display:grid;grid-template-columns:1.4fr .9fr;gap:18px;align-items:start">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <button class="btn btn-ghost btn-sm" onclick="pdShift(-1)">←</button>
+        <div style="font-size:.95rem;font-weight:700">${monthName}</div>
+        <button class="btn btn-ghost btn-sm" onclick="pdShift(1)">→</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px">
+        ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(w=>`<div style="text-align:center;font-size:.6rem;color:var(--muted);font-weight:700">${w}</div>`).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cells}</div>
+      <div style="font-size:.64rem;color:var(--muted);margin-top:10px">🎨 Pour Day (tap a date) · ⏳ deadline · teal ring = today. Resin needs ~72h cure between layers — plan 4–6 weeks per commission.</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div style="font-size:.86rem;font-weight:700;margin-bottom:8px">Add a deadline</div>
+        <input id="pd-dl-date" type="date" class="finput" style="margin-bottom:6px">
+        <input id="pd-dl-label" class="finput" placeholder="e.g. Blue Horizon — ship by" style="margin-bottom:8px">
+        <button class="btn btn-amber btn-full btn-sm" onclick="pdAddDeadline()">+ Add deadline</button>
+      </div>
+      <div class="card">
+        <div style="font-size:.86rem;font-weight:700;margin-bottom:6px">Upcoming</div>
+        ${upHtml}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// COMMISSION PIPELINE — stage board over website orders
+// (stages saved per-device; reads the shared orders table)
+// ══════════════════════════════════════════════════════════════
+const CP_STAGES=[['inquiry','📩 Inquiry'],['quote','🧾 Quote sent'],['deposit','💰 Deposit paid'],['making','🎨 In progress'],['curing','⏳ Curing'],['ready','✅ Ready'],['shipped','📦 Shipped']];
+function cpStageMap(){ try { return JSON.parse(localStorage.getItem('cece_commission_stage'))||{}; } catch(e){ return {}; } }
+function cpSetStage(id,stage){ const m=cpStageMap(); m[id]=stage; try{ localStorage.setItem('cece_commission_stage',JSON.stringify(m)); }catch(e){} renderCommissions(); }
+function cpDefault(o){ if(o.type==='deposit'||o.status==='deposit-paid-pending')return 'deposit'; if(o.type==='inquiry')return 'inquiry'; if(o.type==='purchase')return o.status==='confirmed'?'shipped':'making'; return 'inquiry'; }
+async function renderCommissions(){
+  const root=document.getElementById('cp-root'); if(!root) return;
+  root.innerHTML='<div style="padding:20px;color:var(--muted);font-size:.78rem">Loading…</div>';
+  try { if(!orders || !orders.length) await loadOrders(); } catch(e){}
+  const map=cpStageMap();
+  const list=(orders||[]).filter(o=> o.type!=='rental' && o.type!=='class-enrollment');
+  const stageOf=o=> map[o.id]||cpDefault(o);
+  const nm=o=> o.customer_name||o.buyer_name||'—';
+  const cols=CP_STAGES.map(([k,lbl])=>{
+    const items=list.filter(o=> stageOf(o)===k);
+    return `<div style="min-width:212px;flex:1">
+      <div style="font-size:.72rem;font-weight:700;margin-bottom:6px">${lbl} <span style="color:var(--muted)">(${items.length})</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+      ${items.map(o=>`<div class="card" style="padding:9px 10px">
+        <div style="font-size:.76rem;font-weight:700">${o.piece_title||'Custom piece'}</div>
+        <div style="font-size:.64rem;color:var(--muted)">${nm(o)}${o.price?' · $'+o.price:''}</div>
+        <select onchange="cpSetStage('${o.id}',this.value)" class="fsel" style="margin-top:6px;font-size:.62rem;padding:4px 6px">
+          ${CP_STAGES.map(([sk,sl])=>`<option value="${sk}" ${stageOf(o)===sk?'selected':''}>${sl}</option>`).join('')}
+        </select>
+      </div>`).join('')||'<div style="font-size:.62rem;color:var(--muted)">—</div>'}
+      </div>
+    </div>`;
+  }).join('');
+  root.innerHTML=`
+    <div style="font-size:.72rem;color:var(--muted);margin-bottom:10px">Every website inquiry, deposit and purchase — move each through its stage with the dropdown. Memorial &amp; custom pieces show here too. Stages are saved on this device.</div>
+    <div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px">${cols}</div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// STUDIO DROP — subscribers list + newsletter composer
+// ══════════════════════════════════════════════════════════════
+let nlSubs=[];
+async function renderNewsletter(){
+  const root=document.getElementById('nl-root'); if(!root) return;
+  root.innerHTML='<div style="padding:20px;color:var(--muted);font-size:.78rem">Loading…</div>';
+  let missing=false;
+  try { nlSubs=await sb.query('subscribers',{select:'*',order:'created_at.desc'}); }
+  catch(e){ nlSubs=[]; missing=/subscribers|relation|does not exist|42P01|not find/i.test(String(e.message||e)); }
+  const emails=(nlSubs||[]).map(s=>s.email).filter(Boolean);
+  const tpl=(typeof emailTpls!=='undefined' && emailTpls.studiodrop)?emailTpls.studiodrop:{subject:'The Studio Drop',body:''};
+  const setup = missing ? `<div class="card" style="border:1px solid var(--amber);background:var(--amber-light);margin-bottom:14px"><div style="font-size:.78rem;font-weight:700;margin-bottom:4px">⚙️ One-time setup</div><div style="font-size:.68rem;line-height:1.6">Create the <b>subscribers</b> table so website sign-ups are saved here. In Supabase → SQL Editor, run <code>supabase/migrations/subscribers_2026-09-23.sql</code> (added to your repo), then refresh.</div></div>` : '';
+  root.innerHTML=`
+  ${setup}
+  <div style="display:grid;grid-template-columns:.9fr 1.3fr;gap:18px;align-items:start">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:.86rem;font-weight:700">Subscribers (${emails.length})</span>
+        <button class="btn btn-ghost btn-xs" onclick="nlCopyEmails()">Copy all</button>
+      </div>
+      <div style="max-height:340px;overflow:auto">
+        ${emails.length? nlSubs.map(s=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:.72rem"><div style="font-weight:600">${s.name||s.email}</div><div style="color:var(--muted);font-size:.64rem">${s.email}</div></div>`).join('') : '<div style="font-size:.7rem;color:var(--muted);padding:8px 0">No subscribers yet — they appear when people join from your website footer.</div>'}
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:.86rem;font-weight:700;margin-bottom:8px">Compose the Studio Drop</div>
+      <input id="nl-subject" class="finput" value="${(tpl.subject||'').replace(/"/g,'&quot;')}" style="margin-bottom:6px">
+      <textarea id="nl-body" class="ftarea" style="min-height:230px;font-size:.72rem;line-height:1.6">${tpl.body||''}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-ghost btn-sm" onclick="nlCopyBody()">Copy text</button>
+        <button class="btn btn-amber btn-sm" onclick="nlSend()">Open email (BCC all)</button>
+      </div>
+      <div style="font-size:.6rem;color:var(--muted);margin-top:6px">For big lists, paste this into a real email tool (Mailchimp / Beehiiv). "Open email (BCC)" is best for small lists.</div>
+    </div>
+  </div>`;
+}
+function nlCopyEmails(){ const e=(nlSubs||[]).map(s=>s.email).filter(Boolean).join(', '); if(navigator.clipboard) navigator.clipboard.writeText(e); showToast('Emails copied','t-success'); }
+function nlCopyBody(){ const b=document.getElementById('nl-body').value; if(navigator.clipboard) navigator.clipboard.writeText(b); showToast('Newsletter text copied','t-success'); }
+function nlSend(){ const subj=encodeURIComponent(document.getElementById('nl-subject').value); const body=encodeURIComponent(document.getElementById('nl-body').value); const bcc=(nlSubs||[]).map(s=>s.email).filter(Boolean).join(','); window.open(`mailto:?bcc=${encodeURIComponent(bcc)}&subject=${subj}&body=${body}`); }
+
 
 // ── EMAIL TEMPLATES ──
 const emailTpls = {
