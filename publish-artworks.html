@@ -2,7 +2,8 @@
 <title>Publish cecepieces Artworks</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
 <!-- One-time batch publisher. Sign in with your hub team login (top), set prices, Publish all.
-     Publishes as your authenticated account, so it works even with the security lock on. anon key + your login only. Delete after publishing. -->
+     Publishes as your authenticated account, so it works even with the security lock on. anon key + your login only. Delete after publishing.
+     UPDATED: 2026-09-24_0214 UTC — safe to re-run: a piece whose title is already in `pieces` is updated in place instead of inserted again (was creating duplicates on the website). -->
 <style>
  *{box-sizing:border-box} body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:#f0ece4;color:#2b2723;margin:0;padding:26px 16px 70px;line-height:1.55}
  .wrap{max-width:760px;margin:0 auto}
@@ -94,19 +95,24 @@ async function signIn(){
 function authH(){ return {apikey:SUPABASE_KEY, Authorization:'Bearer '+(ACCESS||SUPABASE_KEY),'Content-Type':'application/json',Prefer:'return=representation'}; }
 function setStatus(k,m,c){const el=document.getElementById('status-'+k);el.textContent=m;el.className='status'+(c?' '+c:'');}
 async function insert(body){ return fetch(SUPABASE_URL+'/rest/v1/pieces',{method:'POST',headers:authH(),body:JSON.stringify(body)}); }
+// Already on the site? Update that row instead of adding a second copy.
+async function findId(title){ const r=await fetch(SUPABASE_URL+'/rest/v1/pieces?select=id&order=created_at.desc&limit=1&title=eq.'+encodeURIComponent(title),{headers:authH()}); if(!r.ok) return null; const d=await r.json(); return (d[0]&&d[0].id)||null; }
+async function patch(id,body){ return fetch(SUPABASE_URL+'/rest/v1/pieces?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:authH(),body:JSON.stringify(body)}); }
 async function publishOne(p){
   const price=document.getElementById('price-'+p.key).value.trim(), dims=document.getElementById('dims-'+p.key).value.trim();
   const base={title:p.title,type:p.type,price:price||null,dimensions:dims||null,materials:p.materials,description:p.description,caption:p.caption,status:'available',for_sale:true,for_rent:false,image:p.image,date:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})};
   const withVars=Object.assign({},base,{variations:p.variations});
   setStatus(p.key,'Publishing…');
-  let r=await insert(withVars),note='';
+  const existing=await findId(p.title);
+  const send=existing ? (b=>patch(existing,b)) : insert;
+  let r=await send(withVars),note=existing?' — updated the existing listing (no duplicate)':'';
   if(!r.ok){ let t=await r.text();
     if(/42501|row-level security/.test(t)){ setStatus(p.key,'🔒 Locked — click “Sign in” at the top with your hub login, then Publish again.','err'); return false; }
-    if(/variations/.test(t)){ r=await insert(base); note=' (add the "variations" column for colorways, then re-publish)'; }
+    if(/variations/.test(t)){ r=await send(base); note+=' (add the "variations" column for colorways, then re-publish)'; }
     else { setStatus(p.key,'⚠️ '+t.slice(0,140),'err'); return false; }
   }
   if(!r.ok){ setStatus(p.key,'⚠️ '+(await r.text()).slice(0,140),'err'); return false; }
-  const rows=await r.json(); setStatus(p.key,'✅ Published (id '+((rows[0]&&rows[0].id)||'?')+')'+note,'ok'); return true;
+  const rows=await r.json(); setStatus(p.key,'✅ Published (id '+((rows[0]&&rows[0].id)||existing||'?')+')'+note,'ok'); return true;
 }
 async function publishAll(){
   const btn=document.getElementById('go'); btn.disabled=true; btn.textContent='Publishing…';
