@@ -70,6 +70,9 @@ Deno.serve(async (req) => {
     const SITE_URL = ((await appConfig("SITE_URL")) || "https://cecespieces.com").replace(/\/$/, "");
     const body = await req.json().catch(() => ({}));
     const { piece_id, class_id, student_name, student_email } = body;
+    // _test: the go-live workflow's smoke test — create the Stripe session but
+    // don't log an order, so tests never show up in the hub as real orders.
+    const isTest = body._test === true;
 
     // ── PROBE: POST {"_ping":true} — reports key shape + raw Stripe reachability
     if (body._ping) {
@@ -123,7 +126,7 @@ Deno.serve(async (req) => {
       }, `${cls.title} — cecespieces Academy`);
 
       // Pending enrollment (so the hub roster + student classroom see it) …
-      db(`class_enrollments`, {
+      if (!isTest) db(`class_enrollments`, {
         method: "POST", headers: { Prefer: "return=minimal" },
         body: JSON.stringify({
           class_id, class_title: cls.title, class_type: cls.type, price: cls.price,
@@ -132,7 +135,7 @@ Deno.serve(async (req) => {
         }),
       }).catch(() => {});
       // … and a pending order for the CRM / Sales agent.
-      db(`orders`, {
+      if (!isTest) db(`orders`, {
         method: "POST", headers: { Prefer: "return=minimal" },
         body: JSON.stringify({
           piece_title: `${cls.title} (Class Enrollment)`, price: cls.price,
@@ -188,7 +191,7 @@ Deno.serve(async (req) => {
     // Log a pending order so it shows in the hub. For a deposit, record the
     // deposit paid and the balance still due so Cece can confirm & invoice it.
     const balanceStr = isDeposit ? ((priceC - depositC) / 100).toFixed(2) : null;
-    db(`orders`, {
+    if (!isTest) db(`orders`, {
       method: "POST", headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
         piece_id, piece_title: piece.title,

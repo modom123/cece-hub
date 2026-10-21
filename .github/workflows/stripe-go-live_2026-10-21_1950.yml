@@ -31,7 +31,7 @@ on:
       site_url:
         description: "Live website URL (where buyers return after paying)"
         required: true
-        default: "https://cecespieces.com"
+        default: "https://modom123.github.io/cecethepieces"
 
 env:
   PROJECT_REF: tssicoxzxcfijdlvtpqm
@@ -77,7 +77,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-          SITE_URL: ${{ inputs.site_url || 'https://cecespieces.com' }}
+          SITE_URL: ${{ inputs.site_url || 'https://modom123.github.io/cecethepieces' }}
         run: |
           # Stored in private.app_secrets (readable only by the payment functions)
           # instead of Edge Function secrets, so the token only needs SQL access.
@@ -155,7 +155,7 @@ jobs:
           FIRST=$(echo "$PIECES" | jq -r '[.[]? | select((.price // "") != "" and (.status // "available") != "sold")][0].id // empty')
           CO="(no priced piece to test)"
           if [ -n "$FIRST" ]; then
-            CO=$(curl -sS "${H[@]}" -X POST "$SUPABASE_URL/functions/v1/create-checkout" -d "{\"piece_id\":\"$FIRST\"}" | jq -r 'if .url then "✅ Stripe checkout page created" else "❌ " + (.error // "failed") end')
+            CO=$(curl -sS "${H[@]}" -X POST "$SUPABASE_URL/functions/v1/create-checkout" -d "{\"piece_id\":\"$FIRST\",\"_test\":true}" | jq -r 'if .url then "✅ Stripe checkout page created" else "❌ " + (.error // "failed") end')
           fi
           {
             echo "## Stripe setup — $MODE"

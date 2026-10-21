@@ -10,6 +10,11 @@
 name: Database — apply migration
 
 on:
+  # Also runs when supabase/MIGRATE_TRIGGER.md changes on main; the migration
+  # applied is the file named on its last line.
+  push:
+    branches: [main]
+    paths: ['supabase/MIGRATE_TRIGGER.md']
   workflow_dispatch:
     inputs:
       file:
@@ -30,6 +35,8 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           FILE: ${{ inputs.file }}
         run: |
+          [ -n "$FILE" ] || FILE=$(grep -v '^\s*$' supabase/MIGRATE_TRIGGER.md | tail -1 | tr -d '[:space:]')
+          echo "Applying: $FILE"
           [ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "::error::Add the SUPABASE_ACCESS_TOKEN repo secret (supabase.com → Account → Access Tokens)."; exit 1; }
           case "$FILE" in */*|..*) echo "::error::Give just the file name inside supabase/migrations/."; exit 1 ;; esac
           P="supabase/migrations/$FILE"
