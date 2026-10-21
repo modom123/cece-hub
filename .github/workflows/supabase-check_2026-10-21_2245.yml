@@ -1,0 +1,45 @@
+# ────────────────────────────────────────────────────────────────
+# FILE: supabase-check_2026-10-21_2245.yml
+# CREATED: 2026-10-21_2245 UTC
+# WHY: Read-only diagnostic. Shows which Supabase account the
+#      SUPABASE_ACCESS_TOKEN secret belongs to, its role in the organization
+#      that owns the project, and which go-live actions it is allowed to do.
+#      Changes nothing. Runs when supabase/CHECK_TRIGGER.md changes on main.
+# ────────────────────────────────────────────────────────────────
+name: Supabase — permission check
+
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/CHECK_TRIGGER.md']
+  workflow_dispatch:
+
+env:
+  PROJECT_REF: tssicoxzxcfijdlvtpqm
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: What this token can do
+        env:
+          T: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          A="https://api.supabase.com/v1"
+          H=(-H "Authorization: Bearer $T")
+          code(){ curl -s -o /tmp/o.json -w '%{http_code}' "${H[@]}" "$@"; }
+          echo "Token starts with: ${T:0:4}…  length ${#T}"
+          echo "--- project"
+          c=$(code "$A/projects/$PROJECT_REF"); echo "read project: $c"; jq -r '"name=\(.name) org=\(.organization_id // .organization_slug // "?") status=\(.status)"' /tmp/o.json 2>/dev/null || cat /tmp/o.json
+          ORG=$(jq -r '.organization_id // .organization_slug // empty' /tmp/o.json)
+          echo "--- organizations this token can see"
+          code "$A/organizations" >/dev/null; jq -r '.[]? | "\(.id)  \(.name)"' /tmp/o.json
+          if [ -n "$ORG" ]; then
+            echo "--- members of the project's organization (role per member)"
+            c=$(code "$A/organizations/$ORG/members"); echo "list members: $c"
+            jq -r '.[]? | "\(.user_name // .email // .user_id)  role=\(.role_name)  mfa=\(.mfa_enabled)"' /tmp/o.json 2>/dev/null || cat /tmp/o.json
+          fi
+          echo "--- capabilities"
+          echo "read function secrets : $(code "$A/projects/$PROJECT_REF/secrets")"
+          echo "list edge functions   : $(code "$A/projects/$PROJECT_REF/functions")"
+          echo "run SQL (select 1)    : $(code -X POST "$A/projects/$PROJECT_REF/database/query" -H 'Content-Type: application/json' -d '{"query":"select 1 as ok"}')"; head -c 300 /tmp/o.json; echo
