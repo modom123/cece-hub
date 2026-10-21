@@ -9,7 +9,11 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-10-21_2045 UTC
+  LAST UPDATED: 2026-10-21_2120 UTC
+  CHANGE: 2026-10-21_2120 — Stripe catalog auto-sync: pieces + classes become
+          Stripe Products/Prices and stay in sync via DB triggers →
+          sync-stripe-catalog; Payments → "Sync to Stripe now" forces a full
+          refresh. Checkout books sales against the synced product.
   CHANGE: 2026-10-21_2045 — Gallery Walk page: choose the 10 pictures on the
           website's front-page gallery from a photo library of every shop
           piece + colorway (any status), every repo photo not in the shop,
@@ -833,6 +837,13 @@ tr:hover td{background:var(--bg)}
 
     <!-- PAYMENTS -->
     <div class="page" id="page-payments">
+      <!-- Stripe catalog sync (added 2026-10-21_2120 UTC) -->
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-head" style="flex-wrap:wrap;gap:8px"><span class="card-title">🔄 Stripe catalog — updates automatically</span>
+          <button class="btn btn-amber btn-sm" id="stripe-sync-btn" onclick="syncStripeCatalog()">🔄 Sync to Stripe now</button></div>
+        <div style="font-size:.74rem;color:var(--muted);line-height:1.6">Every piece and class is a product in your Stripe account. Adding a piece, changing a price or name, or marking it sold updates Stripe on its own within seconds. Use this button only to force a full refresh (for example after switching Stripe from test to live).</div>
+        <div id="stripe-sync-out" style="font-size:.7rem;margin-top:8px;max-height:180px;overflow:auto;white-space:pre-wrap;color:var(--ink2)"></div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
         <div>
           <div class="card">
@@ -4348,6 +4359,22 @@ function gwUpload(e){
     showToast('📸 Photo added — link it to a shop piece if it has one, then Save','t-success');
   });
   r.readAsDataURL(f);
+}
+
+// ── STRIPE CATALOG SYNC (added 2026-10-21_2120 UTC) ──
+// Pieces/classes reach Stripe automatically via database triggers; this is a
+// manual full refresh. The function accepts a signed-in hub user's token.
+async function syncStripeCatalog(){
+  const btn=document.getElementById('stripe-sync-btn'), out=document.getElementById('stripe-sync-out');
+  btn.disabled=true; out.textContent='Syncing every piece and class to Stripe…';
+  try{
+    const r=await fetch(`${SUPABASE_URL}/functions/v1/sync-stripe-catalog`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${authToken()}`,'Content-Type':'application/json'},body:JSON.stringify({full:true})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||!d.ok) throw new Error(d.error||('HTTP '+r.status)+(r.status===404?' — run the “Stripe — go live” GitHub workflow first':''));
+    out.textContent=`✅ ${d.synced} products up to date in Stripe\n`+(d.log||[]).join('\n');
+    showToast('🔄 Stripe catalog synced','t-success');
+  }catch(e){ out.textContent='⚠️ '+(e.message||e); showToast('Stripe sync: '+(e.message||e),'t-error'); }
+  finally{ btn.disabled=false; }
 }
 
 // ── COLLECTION ──

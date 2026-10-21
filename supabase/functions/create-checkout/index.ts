@@ -35,6 +35,18 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
+// Create a session; if a synced product id belongs to the other Stripe mode
+// (test vs live) or was removed, retry once with a plain product name.
+async function createSession(params: Stripe.Checkout.SessionCreateParams, fallbackName: string) {
+  try { return await stripe.checkout.sessions.create(params); }
+  catch (e) {
+    if (!/No such product/i.test(String((e as Error)?.message))) throw e;
+    const li = params.line_items![0];
+    const { product: _p, ...pd } = li.price_data as Stripe.Checkout.SessionCreateParams.LineItem.PriceData;
+    return await stripe.checkout.sessions.create({ ...params, line_items: [{ ...li, price_data: { ...pd, product_data: { name: fallbackName } } }] });
+  }
+}
+
 const db = (path: string, init?: RequestInit) =>
   fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
@@ -73,7 +85,7 @@ Deno.serve(async (req) => {
 
     // ─────────────────────────── CLASS PURCHASE ───────────────────────────
     if (class_id) {
-      const r = await db(`classes?id=eq.${encodeURIComponent(class_id)}&select=id,title,price,active,type,seats_left`);
+      const r = await db(`classes?id=eq.${encodeURIComponent(class_id)}&select=*`);
       const rows = await r.json();
       const cls = Array.isArray(rows) ? rows[0] : null;
       if (!cls) return json({ error: "Class not found" }, 404);
@@ -84,21 +96,21 @@ Deno.serve(async (req) => {
       const amount = Math.round(parseFloat(cls.price) * 100);
       if (!amount || amount < 50) return json({ error: "This class has no price set — please inquire." }, 400);
 
-      const session = await stripe.checkout.sessions.create({
+      const session = await createSession({
         mode: "payment",
         line_items: [{
           quantity: 1,
           price_data: {
             currency: "usd",
             unit_amount: amount,
-            product_data: { name: `${cls.title} — cecespieces Academy` },
+            ...(cls.stripe_product_id ? { product: cls.stripe_product_id } : { product_data: { name: `${cls.title} — cecespieces Academy` } }),
           },
         }],
         customer_email: student_email || undefined,
         success_url: `${SITE_URL}/?checkout=success&type=class`,
         cancel_url: `${SITE_URL}/?checkout=cancel&type=class`,
         metadata: { class_id: String(class_id), student_name: student_name || "", student_email: student_email || "" },
-      });
+      }, `${cls.title} — cecespieces Academy`);
 
       // Pending enrollment (so the hub roster + student classroom see it) …
       db(`class_enrollments`, {
@@ -129,7 +141,8 @@ Deno.serve(async (req) => {
     // once Cece confirms the final price. Otherwise the full price is charged.
     if (!piece_id) return json({ error: "Missing piece_id or class_id" }, 400);
 
-    const r = await db(`pieces?id=eq.${encodeURIComponent(piece_id)}&select=id,title,price,status,deposit`);
+    // select=* so this keeps working whether or not the Stripe-id columns exist yet.
+    const r = await db(`pieces?id=eq.${encodeURIComponent(piece_id)}&select=*`);
     const rows = await r.json();
     const piece = Array.isArray(rows) ? rows[0] : null;
     if (!piece) return json({ error: "Piece not found" }, 404);
@@ -141,14 +154,18 @@ Deno.serve(async (req) => {
     const amount = isDeposit ? depositC : priceC;
     if (!amount || amount < 50) return json({ error: "This piece has no price set — please inquire." }, 400);
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await createSession({
       mode: "payment",
       line_items: [{
         quantity: 1,
         price_data: {
           currency: "usd",
           unit_amount: amount,
-          product_data: { name: isDeposit ? `Deposit — ${piece.title} (custom)` : (piece.title || "cecespieces original") },
+          // Full purchases are booked against the piece's synced catalog product
+          // (sync-stripe-catalog); the AMOUNT still comes from the database.
+          ...(!isDeposit && piece.stripe_product_id
+            ? { product: piece.stripe_product_id }
+            : { product_data: { name: isDeposit ? `Deposit — ${piece.title} (custom)` : (piece.title || "cecespieces original") } }),
         },
       }],
       // Full purchases collect shipping now; deposits collect it with the balance.
@@ -156,7 +173,7 @@ Deno.serve(async (req) => {
       success_url: `${SITE_URL}/?checkout=success${isDeposit ? "&kind=deposit" : ""}`,
       cancel_url: `${SITE_URL}/?checkout=cancel`,
       metadata: { piece_id: String(piece_id), kind: isDeposit ? "deposit" : "full" },
-    });
+    }, piece.title || "cecespieces original");
 
     // Log a pending order so it shows in the hub. For a deposit, record the
     // deposit paid and the balance still due so Cece can confirm & invoice it.

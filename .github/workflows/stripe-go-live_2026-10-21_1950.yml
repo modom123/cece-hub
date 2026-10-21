@@ -8,6 +8,10 @@
 #        3. creates the Stripe webhook endpoint (checkout + invoice events)
 #           and stores its signing secret — no dashboard clicking
 #        4. tests that checkout can reach Stripe and lists priced pieces
+#        5. (2026-10-21_2120) sets up the database (gallery table, Stripe id
+#           columns, change triggers), deploys sync-stripe-catalog and syncs
+#           every piece + class into Stripe Products/Prices. After this,
+#           edits in the hub reach Stripe automatically.
 #      Needs two GitHub repo secrets (Settings → Secrets → Actions):
 #        SUPABASE_ACCESS_TOKEN  — supabase.com → Account → Access Tokens
 #        STRIPE_SECRET_KEY      — Stripe → Developers → API keys (sk_test_… or sk_live_…)
@@ -63,10 +67,21 @@ jobs:
             STRIPE_SECRET_KEY="$(printf %s "$STRIPE_SECRET_KEY" | tr -d '[:space:]')" \
             SITE_URL="$SITE_URL"
 
+      - name: Set up the database (gallery, Stripe ids, auto-sync triggers)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          BODY=$(jq -Rs '{query: .}' < supabase/migrations/stripe_catalog_sync_2026-10-21_2120.sql)
+          CODE=$(curl -sS -o out.json -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$BODY")
+          if [ "$CODE" -ge 300 ]; then cat out.json; echo "::error::Database setup failed ($CODE)"; exit 1; fi
+          echo "Database setup applied."
+
       - name: Deploy the payment functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
+          supabase functions deploy sync-stripe-catalog  --project-ref "$PROJECT_REF" --no-verify-jwt
           supabase functions deploy create-checkout      --project-ref "$PROJECT_REF"
           supabase functions deploy send-balance-invoice --project-ref "$PROJECT_REF"
           supabase functions deploy stripe-webhook       --project-ref "$PROJECT_REF" --no-verify-jwt
@@ -96,6 +111,22 @@ jobs:
           supabase secrets set --project-ref "$PROJECT_REF" STRIPE_WEBHOOK_SECRET="$WHSEC"
           echo "Webhook endpoint $(echo "$RESP" | jq -r .id) created → $URL"
 
+      - name: Sync every piece and class into Stripe
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          SECRET=$(curl -sS -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+            -d '{"query":"select secret from stripe_sync_config where id = 1"}' | jq -r '.[0].secret // empty')
+          [ -n "$SECRET" ] || { echo "::error::Could not read the sync secret"; exit 1; }
+          echo "::add-mask::$SECRET"
+          sleep 5
+          RES=$(curl -sS -X POST "$SUPABASE_URL/functions/v1/sync-stripe-catalog" -H "Content-Type: application/json" -H "x-sync-secret: $SECRET" -d '{"full":true}')
+          echo "$RES" | jq -r '.log[]? // empty'
+          N=$(echo "$RES" | jq -r '.synced // 0'); W=$(echo "$RES" | jq '[.log[]? | select(startswith("⚠️"))] | length')
+          echo "SYNCED=$N" >> "$GITHUB_ENV"; echo "SYNC_WARN=$W" >> "$GITHUB_ENV"
+          [ "$(echo "$RES" | jq -r '.ok // false')" = "true" ] || { echo "::error::Sync failed: $(echo "$RES" | jq -r '.error // .')"; exit 1; }
+
       - name: Test checkout end-to-end
         run: |
           ANON=$(grep -o "eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*" cece-hub.html | head -1)
@@ -122,6 +153,8 @@ jobs:
             echo "| Pieces for sale with a price | $PRICED |"
             echo "| Pieces taking a deposit | $DEPOS |"
             echo "| Test checkout for a real piece | $CO |"
+            echo "| Products synced to Stripe | $SYNCED$([ "${SYNC_WARN:-0}" != "0" ] && echo " (⚠️ $SYNC_WARN with problems — see the sync step log)") |"
+            echo "| Automatic sync on every hub change | ✅ |"
             echo ""
             echo "Prices are read from the hub's database at the moment of purchase, so any price you change in the hub is what Stripe charges — no re-run needed."
           } >> "$GITHUB_STEP_SUMMARY"

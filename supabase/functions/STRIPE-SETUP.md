@@ -9,6 +9,13 @@
 > 4. To take real money: replace `STRIPE_SECRET_KEY` with your `sk_live_…` key and run it again.
 >
 > The workflow does steps 1–5b below for you, including creating the webhook.
+>
+> **Automatic product & price sync (2026-10-21):** the workflow also runs
+> `migrations/stripe_catalog_sync_2026-10-21_2120.sql` (or paste it into the SQL
+> Editor yourself) and deploys `sync-stripe-catalog`. From then on every piece and
+> class is a Stripe Product with its current Price — adding, editing, repricing,
+> selling or deleting in the hub updates Stripe within seconds. Hub → Payments →
+> **Sync to Stripe now** forces a full refresh (e.g. after switching test → live).
 
 
 Real card payments for **both artwork and Academy classes**. Two small Edge
