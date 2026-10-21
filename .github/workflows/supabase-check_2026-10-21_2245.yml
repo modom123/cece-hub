@@ -25,6 +25,7 @@ jobs:
         env:
           T: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
+          set +e
           A="https://api.supabase.com/v1"
           H=(-H "Authorization: Bearer $T")
           code(){ curl -s -o /tmp/o.json -w '%{http_code}' "${H[@]}" "$@"; }
@@ -33,13 +34,12 @@ jobs:
           c=$(code "$A/projects/$PROJECT_REF"); echo "read project: $c"; jq -r '"name=\(.name) org=\(.organization_id // .organization_slug // "?") status=\(.status)"' /tmp/o.json 2>/dev/null || cat /tmp/o.json
           ORG=$(jq -r '.organization_id // .organization_slug // empty' /tmp/o.json)
           echo "--- organizations this token can see"
-          code "$A/organizations" >/dev/null; jq -r '.[]? | "\(.id)  \(.name)"' /tmp/o.json
+          echo "list orgs: $(code "$A/organizations")"; head -c 400 /tmp/o.json; echo
           if [ -n "$ORG" ]; then
             echo "--- members of the project's organization (role per member)"
-            c=$(code "$A/organizations/$ORG/members"); echo "list members: $c"
-            jq -r '.[]? | "\(.user_name // .email // .user_id)  role=\(.role_name)  mfa=\(.mfa_enabled)"' /tmp/o.json 2>/dev/null || cat /tmp/o.json
+            echo "list members: $(code "$A/organizations/$ORG/members")"; head -c 800 /tmp/o.json; echo
           fi
           echo "--- capabilities"
-          echo "read function secrets : $(code "$A/projects/$PROJECT_REF/secrets")"
-          echo "list edge functions   : $(code "$A/projects/$PROJECT_REF/functions")"
+          echo "read function secrets : $(code "$A/projects/$PROJECT_REF/secrets")"; head -c 200 /tmp/o.json | sed 's/"value":"[^"]*"/"value":"…"/g'; echo
+          echo "list edge functions   : $(code "$A/projects/$PROJECT_REF/functions")"; jq -r '.[]?.slug' /tmp/o.json 2>/dev/null | tr '\n' ' '; echo
           echo "run SQL (select 1)    : $(code -X POST "$A/projects/$PROJECT_REF/database/query" -H 'Content-Type: application/json' -d '{"query":"select 1 as ok"}')"; head -c 300 /tmp/o.json; echo
