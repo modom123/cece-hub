@@ -44,7 +44,7 @@ supabase link --project-ref tssicoxzxcfijdlvtpqm
 ## 2. Set the secrets (from Stripe → Developers → API keys)
 ```
 supabase secrets set STRIPE_SECRET_KEY=sk_live_xxxxxxxxxxxx
-supabase secrets set SITE_URL=https://cecespieces.com       # your live website URL
+supabase secrets set SITE_URL=https://www.cecespieces.shop       # your live website URL
 ```
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically — don't set them.
 

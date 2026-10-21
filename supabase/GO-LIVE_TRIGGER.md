@@ -11,3 +11,4 @@
 - 2026-10-21_2240 UTC — rerun after token update
 - 2026-10-21_2300 UTC — run with keys stored in the locked DB table
 - 2026-10-21_2350 UTC — rerun: site URL → GitHub Pages, test checkouts no longer log orders
+- 2026-10-21_2359 UTC — site URL → https://www.cecespieces.shop

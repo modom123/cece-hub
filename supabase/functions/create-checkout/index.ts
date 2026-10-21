@@ -7,7 +7,7 @@
 // pending enrollment) for the hub; the stripe-webhook function confirms it on pay.
 //
 // Deploy:  supabase functions deploy create-checkout
-// Secrets: supabase secrets set STRIPE_SECRET_KEY=sk_live_...  SITE_URL=https://cecespieces.com
+// Secrets: supabase secrets set STRIPE_SECRET_KEY=sk_live_...  SITE_URL=https://www.cecespieces.shop
 //          (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided automatically)
 // ---------------------------------------------------------------------------
 // Deno-native Stripe build (Supabase's own examples use esm.sh ?target=deno).
@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
 
   try {
     await initStripe();
-    const SITE_URL = ((await appConfig("SITE_URL")) || "https://cecespieces.com").replace(/\/$/, "");
+    const SITE_URL = ((await appConfig("SITE_URL")) || "https://www.cecespieces.shop").replace(/\/$/, "");
     const body = await req.json().catch(() => ({}));
     const { piece_id, class_id, student_name, student_email } = body;
     // _test: the go-live workflow's smoke test — create the Stripe session but
