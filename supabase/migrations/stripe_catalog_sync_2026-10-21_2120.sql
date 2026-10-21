@@ -95,3 +95,28 @@ create trigger classes_stripe_sync_upd after update on classes
   ) execute function public.stripe_catalog_notify();
 
 -- Check: select count(*) from stripe_sync_config;   -- 1
+
+-- ── 5. Locked app settings (added 2026-10-21_2255) ──────────────────────────
+-- Holds STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and SITE_URL for the payment
+-- functions (written by the go-live workflow). The private schema isn't
+-- exposed by the API, the table is revoked from everyone, and app_secret()
+-- may only be executed by the service role (the Edge Functions).
+create schema if not exists private;
+create table if not exists private.app_secrets (
+  name        text primary key,
+  value       text not null,
+  updated_at  timestamptz not null default now()
+);
+revoke all on schema private from public, anon, authenticated;
+revoke all on private.app_secrets from public, anon, authenticated;
+
+create or replace function public.app_secret(n text)
+returns text
+language sql
+stable
+security definer
+set search_path = private, public
+as $$ select value from private.app_secrets where name = n $$;
+
+revoke all on function public.app_secret(text) from public, anon, authenticated;
+grant execute on function public.app_secret(text) to service_role;

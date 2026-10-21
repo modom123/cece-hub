@@ -9,3 +9,4 @@
 - 2026-10-21_2220 UTC — rerun after secrets added to cece-hub
 - 2026-10-21_2230 UTC — rerun with full-access Supabase token
 - 2026-10-21_2240 UTC — rerun after token update
+- 2026-10-21_2300 UTC — run with keys stored in the locked DB table

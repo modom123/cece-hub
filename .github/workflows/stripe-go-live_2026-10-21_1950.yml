@@ -3,7 +3,8 @@
 # CREATED: 2026-10-21_1950 UTC
 # WHY: One-click Stripe setup for cecespieces. Run it from GitHub →
 #      Actions → "Stripe — go live" → Run workflow. It:
-#        1. stores the Stripe key + site URL as Supabase secrets
+#        1. stores the Stripe key + site URL in a locked database table
+#           (private.app_secrets; only the payment functions can read it)
 #        2. deploys create-checkout, stripe-webhook, send-balance-invoice
 #        3. creates the Stripe webhook endpoint (checkout + invoice events)
 #           and stores its signing secret — no dashboard clicking
@@ -62,16 +63,6 @@ jobs:
         with:
           version: latest
 
-      - name: Store Stripe key and site URL in Supabase
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-          SITE_URL: ${{ inputs.site_url || 'https://cecespieces.com' }}
-        run: |
-          supabase secrets set --project-ref "$PROJECT_REF" \
-            STRIPE_SECRET_KEY="$(printf %s "$STRIPE_SECRET_KEY" | tr -d '[:space:]')" \
-            SITE_URL="$SITE_URL"
-
       - name: Set up the database (gallery, Stripe ids, auto-sync triggers)
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -81,6 +72,21 @@ jobs:
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$BODY")
           if [ "$CODE" -ge 300 ]; then cat out.json; echo "::error::Database setup failed ($CODE)"; exit 1; fi
           echo "Database setup applied."
+
+      - name: Store Stripe key and site URL (locked database table)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          SITE_URL: ${{ inputs.site_url || 'https://cecespieces.com' }}
+        run: |
+          # Stored in private.app_secrets (readable only by the payment functions)
+          # instead of Edge Function secrets, so the token only needs SQL access.
+          KEY="$(printf %s "$STRIPE_SECRET_KEY" | tr -d '[:space:]')"
+          BODY=$(jq -n --arg k "$KEY" --arg u "$SITE_URL" '{query: ("insert into private.app_secrets(name,value) values (\u0027STRIPE_SECRET_KEY\u0027, $k$" + $k + "$k$), (\u0027SITE_URL\u0027, $k$" + $u + "$k$) on conflict (name) do update set value = excluded.value, updated_at = now();")}')
+          CODE=$(curl -sS -o out.json -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$BODY")
+          if [ "$CODE" -ge 300 ]; then echo "::error::Could not store the Stripe key ($CODE): $(jq -r '.message // .' out.json)"; exit 1; fi
+          rm -f out.json; echo "Stripe key + site URL stored."
 
       - name: Deploy the payment functions
         env:
@@ -113,7 +119,11 @@ jobs:
             echo "::error::Stripe would not create the webhook: $(echo "$RESP" | jq -r '.error.message // "unknown error"')"; exit 1
           fi
           echo "::add-mask::$WHSEC"
-          supabase secrets set --project-ref "$PROJECT_REF" STRIPE_WEBHOOK_SECRET="$WHSEC"
+          BODY=$(jq -n --arg w "$WHSEC" '{query: ("insert into private.app_secrets(name,value) values (\u0027STRIPE_WEBHOOK_SECRET\u0027, $w$" + $w + "$w$) on conflict (name) do update set value = excluded.value, updated_at = now();")}')
+          CODE=$(curl -sS -o out.json -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$BODY")
+          if [ "$CODE" -ge 300 ]; then echo "::error::Could not store the webhook secret ($CODE)"; exit 1; fi
+          rm -f out.json
           echo "Webhook endpoint $(echo "$RESP" | jq -r .id) created → $URL"
 
       - name: Sync every piece and class into Stripe

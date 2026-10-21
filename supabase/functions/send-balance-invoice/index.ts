@@ -16,10 +16,19 @@ import Stripe from "npm:stripe@17";
 
 // Deno's runtime needs Stripe's fetch-based HTTP client; the default Node
 // client fails with "An error occurred with our connection to Stripe".
-const stripe = new Stripe((Deno.env.get("STRIPE_SECRET_KEY") ?? "").replace(/\s+/g, ""), {
-  apiVersion: "2024-06-20",
-  httpClient: Stripe.createFetchHttpClient(),
-});
+import { appConfig } from "../_shared/config.ts";
+
+// Stripe client built per request from the current key (see _shared/config.ts).
+let stripe: Stripe;
+let stripeKey = "";
+async function initStripe(): Promise<string> {
+  const k = (await appConfig("STRIPE_SECRET_KEY")).replace(/\s+/g, "");
+  if (!stripe || k !== stripeKey) {
+    stripeKey = k;
+    stripe = new Stripe(k, { apiVersion: "2024-06-20", httpClient: Stripe.createFetchHttpClient() });
+  }
+  return k;
+}
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -36,6 +45,7 @@ const db = (path: string, init?: RequestInit) =>
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  await initStripe();
 
   try {
     const { piece_id, final_price, customer_email, customer_name } = await req.json().catch(() => ({}));

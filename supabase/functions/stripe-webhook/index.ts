@@ -20,11 +20,19 @@ import Stripe from "npm:stripe@17";
 
 // Deno's runtime needs Stripe's fetch-based HTTP client; the default Node
 // client fails with "An error occurred with our connection to Stripe".
-const stripe = new Stripe((Deno.env.get("STRIPE_SECRET_KEY") ?? "").replace(/\s+/g, ""), {
-  apiVersion: "2024-06-20",
-  httpClient: Stripe.createFetchHttpClient(),
-});
-const WHSEC        = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
+import { appConfig } from "../_shared/config.ts";
+
+// Stripe client built per request from the current key (see _shared/config.ts).
+let stripe: Stripe;
+let stripeKey = "";
+async function initStripe(): Promise<string> {
+  const k = (await appConfig("STRIPE_SECRET_KEY")).replace(/\s+/g, "");
+  if (!stripe || k !== stripeKey) {
+    stripeKey = k;
+    stripe = new Stripe(k, { apiVersion: "2024-06-20", httpClient: Stripe.createFetchHttpClient() });
+  }
+  return k;
+}
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -38,7 +46,8 @@ Deno.serve(async (req) => {
   const raw = await req.text();
   let event: Stripe.Event;
   try {
-    event = await stripe.webhooks.constructEventAsync(raw, sig!, WHSEC);
+    await initStripe();
+    event = await stripe.webhooks.constructEventAsync(raw, sig!, await appConfig("STRIPE_WEBHOOK_SECRET"));
   } catch (e) {
     return new Response(`Bad signature: ${(e as Error).message}`, { status: 400 });
   }

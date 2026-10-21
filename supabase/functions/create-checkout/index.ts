@@ -19,13 +19,21 @@ import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 // can wrap and inject a newline anywhere (even mid-key); any whitespace makes
 // an invalid Authorization header that surfaces as a Stripe "connection error".
 // Stripe keys never contain whitespace, so removing it all is safe.
-const stripe = new Stripe((Deno.env.get("STRIPE_SECRET_KEY") ?? "").replace(/\s+/g, ""), {
-  apiVersion: "2024-06-20",
-  httpClient: Stripe.createFetchHttpClient(),
-});
+import { appConfig } from "../_shared/config.ts";
+
+// Stripe client built per request from the current key (see _shared/config.ts).
+let stripe: Stripe;
+let stripeKey = "";
+async function initStripe(): Promise<string> {
+  const k = (await appConfig("STRIPE_SECRET_KEY")).replace(/\s+/g, "");
+  if (!stripe || k !== stripeKey) {
+    stripeKey = k;
+    stripe = new Stripe(k, { apiVersion: "2024-06-20", httpClient: Stripe.createFetchHttpClient() });
+  }
+  return k;
+}
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const SITE_URL     = (Deno.env.get("SITE_URL") || "https://cecespieces.com").replace(/\/$/, "");
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -58,12 +66,14 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
+    await initStripe();
+    const SITE_URL = ((await appConfig("SITE_URL")) || "https://cecespieces.com").replace(/\/$/, "");
     const body = await req.json().catch(() => ({}));
     const { piece_id, class_id, student_name, student_email } = body;
 
     // ── PROBE: POST {"_ping":true} — reports key shape + raw Stripe reachability
     if (body._ping) {
-      const raw = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+      const raw = await appConfig("STRIPE_SECRET_KEY");
       const clean = raw.replace(/\s+/g, "");
       const out: Record<string, unknown> = {
         raw_len: raw.length,

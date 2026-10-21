@@ -22,10 +22,19 @@
 // ---------------------------------------------------------------------------
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 
-const stripe = new Stripe((Deno.env.get("STRIPE_SECRET_KEY") ?? "").replace(/\s+/g, ""), {
-  apiVersion: "2024-06-20",
-  httpClient: Stripe.createFetchHttpClient(),
-});
+import { appConfig } from "../_shared/config.ts";
+
+// Stripe client built per request from the current key (see _shared/config.ts).
+let stripe: Stripe;
+let stripeKey = "";
+async function initStripe(): Promise<string> {
+  const k = (await appConfig("STRIPE_SECRET_KEY")).replace(/\s+/g, "");
+  if (!stripe || k !== stripeKey) {
+    stripeKey = k;
+    stripe = new Stripe(k, { apiVersion: "2024-06-20", httpClient: Stripe.createFetchHttpClient() });
+  }
+  return k;
+}
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -127,7 +136,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   if (!(await authorized(req))) return json({ error: "Not authorized" }, 401);
-  if (!Deno.env.get("STRIPE_SECRET_KEY")) return json({ error: "STRIPE_SECRET_KEY is not set" }, 500);
+  if (!(await initStripe())) return json({ error: "STRIPE_SECRET_KEY is not set" }, 500);
 
   const body = await req.json().catch(() => ({}));
   const log: string[] = [];
