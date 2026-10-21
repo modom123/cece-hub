@@ -36,13 +36,14 @@ jobs:
           ST(){ curl -s -u "$KEY:" "https://api.stripe.com/v1/$1"; }
 
           echo "=================== 1. LIVE SITES"
-          for u in https://cecespieces.com https://www.cecespieces.com https://cecethepieces.vercel.app https://cecewebsite.vercel.app https://cece-hub.vercel.app https://cecepieceshub.vercel.app; do
-            c=$(curl -s -L -o /tmp/p.html -w '%{http_code} %{url_effective}' --max-time 20 "$u")
-            feat=""; grep -q 'id="giEnter"' /tmp/p.html && feat="$feat gallery"; grep -q 'id="payModal"' /tmp/p.html && feat="$feat paychooser"; grep -q 'page-gallerywalk' /tmp/p.html && feat="$feat hub-gallerywalk"; grep -q 'syncStripeCatalog' /tmp/p.html && feat="$feat hub-stripesync"
-            echo "$u -> $c |$feat"
+          for u in https://cecespieces.com https://www.cecespieces.com https://cecewebsite.vercel.app https://cecethepieces.vercel.app https://modom123.github.io/cecethepieces/ https://cece-hub.vercel.app https://cecepieceshub.vercel.app https://modom123.github.io/cece-hub/; do
+            rm -f /tmp/p.html
+            c=$(curl -s -L --compressed -o /tmp/p.html -w '%{http_code} %{url_effective}' --max-time 20 "$u")
+            feat=""; for m in giEnter payModal page-gallerywalk syncStripeCatalog sc-feature; do grep -q "$m" /tmp/p.html 2>/dev/null && feat="$feat $m"; done
+            title=$(grep -o '<title>[^<]*' /tmp/p.html 2>/dev/null | head -1 | sed 's/<title>//')
+            echo "$u -> $c | size=$(wc -c < /tmp/p.html 2>/dev/null) | title=$title |$feat"
           done
-          echo "DNS cecespieces.com: $(dig +short cecespieces.com A | tr '\n' ' ') CNAME www: $(dig +short www.cecespieces.com CNAME)"
-
+          echo "DNS cecespieces.com: A=[$(dig +short cecespieces.com A | tr '\n' ' ')] NS=[$(dig +short cecespieces.com NS | tr '\n' ' ')]"
           echo "=================== 2. CATALOG (public view)"
           P=$(curl -s "${A[@]}" "$SB/rest/v1/pieces?select=id,title,type,price,deposit,status,image,stripe_product_id")
           echo "$P" | jq -r '"pieces=\(length)  available=\([.[]|select((.status//"available")=="available")]|length)  sold=\([.[]|select(.status=="sold")]|length)  reserved/hold=\([.[]|select(.status=="reserved" or .status=="hold")]|length)"'
@@ -79,7 +80,7 @@ jobs:
           SQL "select type, status, source, count(*) n from orders group by 1,2,3 order by 4 desc limit 15" | jq -r '.[]? | "  \(.type) / \(.status) / \(.source) : \(.n)"'
 
           echo "=================== 5. STRIPE ACCOUNT"
-          ST account | jq -r '"mode=\(if (env.KEY|startswith("sk_live")) then "LIVE" else "TEST" end) charges_enabled=\(.charges_enabled) payouts_enabled=\(.payouts_enabled) details_submitted=\(.details_submitted) country=\(.country) name=\(.business_profile.name // .settings.dashboard.display_name) statement_descriptor=\(.settings.payments.statement_descriptor) support_email=\(.business_profile.support_email) currently_due=\(.requirements.currently_due|length) disabled_reason=\(.requirements.disabled_reason)"' KEY="$KEY"
+          ST account | jq -r '"charges_enabled=\(.charges_enabled) payouts_enabled=\(.payouts_enabled) details_submitted=\(.details_submitted) country=\(.country) name=\(.business_profile.name // .settings.dashboard.display_name) statement_descriptor=\(.settings.payments.statement_descriptor) support_email=\(.business_profile.support_email) currently_due=\(.requirements.currently_due|length) disabled_reason=\(.requirements.disabled_reason)"'
           echo "webhooks: $(ST 'webhook_endpoints?limit=20' | jq -c '[.data[]? | {url, status, events: .enabled_events}]')"
           echo "active products: $(ST 'products?active=true&limit=100' | jq '.data|length')  archived: $(ST 'products?active=false&limit=100' | jq '.data|length')"
           echo "payment methods (default config):"
