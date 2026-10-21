@@ -36,14 +36,14 @@ jobs:
           ST(){ curl -s -u "$KEY:" "https://api.stripe.com/v1/$1"; }
 
           echo "=================== 1. LIVE SITES"
-          for u in https://cecespieces.com https://www.cecespieces.com https://cecewebsite.vercel.app https://cecethepieces.vercel.app https://modom123.github.io/cecethepieces/ https://cece-hub.vercel.app https://cecepieceshub.vercel.app https://modom123.github.io/cece-hub/; do
+          for u in https://cecespieces.shop https://www.cecespieces.shop https://cecespieces.com https://cecewebsite.vercel.app https://cecethepieces.vercel.app https://modom123.github.io/cecethepieces/ https://cece-hub.vercel.app https://cecepieceshub.vercel.app https://modom123.github.io/cece-hub/; do
             rm -f /tmp/p.html
             c=$(curl -s -L --compressed -o /tmp/p.html -w '%{http_code} %{url_effective}' --max-time 20 "$u")
             feat=""; for m in giEnter payModal page-gallerywalk syncStripeCatalog sc-feature; do grep -q "$m" /tmp/p.html 2>/dev/null && feat="$feat $m"; done
             title=$(grep -o '<title>[^<]*' /tmp/p.html 2>/dev/null | head -1 | sed 's/<title>//')
             echo "$u -> $c | size=$(wc -c < /tmp/p.html 2>/dev/null) | title=$title |$feat"
           done
-          echo "DNS cecespieces.com: A=[$(dig +short cecespieces.com A | tr '\n' ' ')] NS=[$(dig +short cecespieces.com NS | tr '\n' ' ')]"
+          for d in cecespieces.shop www.cecespieces.shop cecespieces.com; do echo "DNS $d: A=[$(dig +short $d A | tr '\n' ' ')] CNAME=[$(dig +short $d CNAME)] NS=[$(dig +short ${d#www.} NS | tr '\n' ' ')]"; done
           echo "=================== 2. CATALOG (public view)"
           P=$(curl -s "${A[@]}" "$SB/rest/v1/pieces?select=id,title,type,price,deposit,status,image,stripe_product_id")
           echo "$P" | jq -r '"pieces=\(length)  available=\([.[]|select((.status//"available")=="available")]|length)  sold=\([.[]|select(.status=="sold")]|length)  reserved/hold=\([.[]|select(.status=="reserved" or .status=="hold")]|length)"'
