@@ -9,7 +9,13 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-10-21_1900 UTC
+  LAST UPDATED: 2026-10-21_2045 UTC
+  CHANGE: 2026-10-21_2045 — Gallery Walk page: choose the 10 pictures on the
+          website's front-page gallery from a photo library of every shop
+          piece + colorway (any status), every repo photo not in the shop,
+          or a new upload; link a photo to a shop piece, override a placard
+          name, reorder frames, Save & publish (public "gallery" table —
+          run migrations/gallery_walk_2026-10-21_2045.sql once).
   CHANGE: 2026-10-21_1900 — Photo Studio Pro: rebuilt the photo editor as a
           full-screen, non-destructive studio. AI Art Director (Claude vision
           picks the edits + explains them), AI Detect Artwork with perspective
@@ -567,6 +573,7 @@ tr:hover td{background:var(--bg)}
     <div class="sb-label">Art & Sales</div>
     <button class="nav-btn" onclick="goPage('publish',this)"><span class="ico">📸</span>Publish a Piece</button>
     <button class="nav-btn" onclick="goPage('collection',this)"><span class="ico">🖼</span>My Collection</button>
+    <button class="nav-btn" onclick="goPage('gallerywalk',this)"><span class="ico">🏛️</span>Gallery Walk</button>
     <button class="nav-btn" onclick="goPage('rentals',this)"><span class="ico">🎪</span>Rentals</button>
     <button class="nav-btn" onclick="goPage('classes',this)"><span class="ico">🎓</span>Classes</button>
     <button class="nav-btn" onclick="goPage('pourdays',this)"><span class="ico">🗓️</span>Studio Calendar</button>
@@ -805,6 +812,23 @@ tr:hover td{background:var(--bg)}
         <span style="font-size:.7rem;color:var(--muted)" id="coll-count">Loading...</span>
       </div>
       <div class="gallery" id="coll-gallery"></div>
+    </div>
+
+    <!-- GALLERY WALK — choose the 10 pictures on the website's front page (added 2026-10-21_2045 UTC) -->
+    <div class="page" id="page-gallerywalk">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head" style="flex-wrap:wrap;gap:8px">
+          <span class="card-title">🏛️ Gallery Walk — your website's front page</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="gwReset()">↺ Default pieces</button>
+            <button class="btn btn-ghost btn-sm" onclick="window.open('https://cecespieces.com/','_blank')">👁 View website</button>
+            <button class="btn btn-amber btn-sm" id="gw-save" onclick="gwSave()">💾 Save &amp; publish</button>
+          </div>
+        </div>
+        <div style="font-size:.74rem;color:var(--muted);line-height:1.6">Visitors walk past these 10 frames before entering the site. Tap <b>Change picture</b> to pick any photo — shop pieces, colorways, photos not in the shop yet, or a new upload. Placard names come from the shop automatically; type a name only to override it.</div>
+        <div id="gw-status" style="font-size:.72rem;margin-top:8px"></div>
+      </div>
+      <div id="gw-grid" class="gw-grid"></div>
     </div>
 
     <!-- PAYMENTS -->
@@ -2497,6 +2521,7 @@ const pmeta = {
   dashboard:   { t:'Dashboard', s:'Your business at a glance.' },
   publish:     { t:'Publish a Piece', s:'Upload → set price → hit the button. Done.' },
   collection:  { t:'My Collection', s:'All your original pieces.' },
+  gallerywalk: { t:'Gallery Walk', s:'Choose the 10 pictures on your website’s front page.' },
   rentals:     { t:'Rentals', s:'Birthdays, weddings, house staging & more.' },
   classes:     { t:'Online Classes', s:'Choose what to offer, schedule live sessions, set prices & book students.' },
   pourdays:    { t:'Studio Calendar', s:'Pour Days, cure windows & commission deadlines — paced for your flow.' },
@@ -2528,6 +2553,7 @@ function goPage(id, btn) {
   if (id === 'commissions') renderCommissions();
   if (id === 'newsletter')  renderNewsletter();
   if (id === 'pricing')     renderPricing();
+  if (id === 'gallerywalk') renderGalleryWalk();
   if (id === 'orders')      renderOrders();
   if (id === 'collection')  renderCollection();
   if (id === 'crm')         renderCRM();
@@ -3570,7 +3596,8 @@ function psCl(v,a,b){ return v<a?a:v>b?b:v; }
 
 // ── open / close ──
 function openPhotoStudio(which){
-  const src = which==='pm' ? (pieces.find(p=>p.id===currentPieceId)||{}).image : imgData;
+  const src = which==='pm' ? (pieces.find(p=>p.id===currentPieceId)||{}).image
+            : which==='gw' ? gwResolve(gwSlots[gwPickIdx]).src : imgData;
   if(!src){ showToast('Upload or open a photo first.','t-error'); return; }
   PS.which=which; PS.src=src;
   const img=new Image(); img.crossOrigin='anonymous';
@@ -4063,6 +4090,15 @@ function psApplyMain(){
   let url;
   try{ url=psExport(PS_SAVE); }catch(e){ url=null; }
   if(!url){ showToast('Could not export this photo (image blocked cross-origin). Re-upload it, then enhance.','t-error'); return; }
+  if(PS.which==='gw'){
+    // Gallery frame: the edited photo hangs in the frame; any shop link is kept
+    // so the placard still shows the shop name and View in Shop.
+    const old=gwSlots[gwPickIdx]||{}, link=old.piece_id;
+    gwSlots[gwPickIdx]=Object.assign({ src:url }, link!=null&&link!==''?{ piece_id:link }:{}, old.title?{ title:old.title }:{});
+    gwTouch(); gwRenderSlots(); closePhotoStudio();
+    showToast('✨ Edited photo placed in Frame No. '+GW_ROMAN[gwPickIdx]+' — Save & publish to go live','t-success');
+    return;
+  }
   if(PS.which==='pm'){
     const p=pieces.find(x=>x.id===currentPieceId);
     document.getElementById('pm-img').src=url;
@@ -4077,6 +4113,7 @@ function psApplyMain(){
   closePhotoStudio();
 }
 function psAddVariation(){
+  if(PS.which==='gw'){ showToast('For the gallery, use “Use as main photo” — it places the edited picture in the frame.','t-amber'); return; }
   let url; try{ url=psExport(PS_SAVE); }catch(e){ url=null; }
   if(!url){ showToast('Could not export this photo — re-upload it first.','t-error'); return; }
   const sc=PS.st.scene, label = sc.mode==='room' ? PS_ROOMS[sc.room].name : sc.mode==='studio' ? 'Studio — '+(PS_BACKDROPS.find(b=>b[0]===sc.backdrop)||[])[1] : (PS.st.look?PS_LOOKS[PS.st.look].name:'Enhanced');
@@ -4102,6 +4139,7 @@ function psSocialPack(){
 }
 
 function psGenerateVariations(){
+  if(PS.which==='gw'){ showToast('For the gallery, use “Use as main photo” — it places the edited picture in the frame.','t-amber'); return; }
   let base;
   try{ base=psExport(PS_SAVE); }catch(e){ base=null; }
   if(!base){ showToast('Could not read this photo (cross-origin). Re-upload it, then make variations.','t-error'); return; }
@@ -4122,6 +4160,195 @@ function psGenerateVariations(){
   img.src=base;
 }
 addEventListener('resize',()=>{ if(document.getElementById('cp-overlay-photostudio')?.classList.contains('open')) psRender(); });
+
+// ── GALLERY WALK (added 2026-10-21_2045 UTC) ──
+// Chooses the 10 pictures on the website's Gallery Walk front page. Saved to
+// the public `gallery` table (row 'walk') as slots: {piece_id, img} for a shop
+// piece photo (img 0 = main, n = nth colorway), {src} for a photo that isn't
+// in the shop (repo photo or upload), plus optional {title} for the placard.
+// The website resolves names from the shop, so placards always match it.
+const GW_RAW = 'https://raw.githubusercontent.com/modom123/cecethepieces/main/';
+const GW_DEFAULT = ['81746D25-6F5A-426B-8BB6-6EC446155E6D.jpeg','IMG_4081.jpeg','IMG_4082.jpeg','Gemini_Generated_Image_391xt6391xt6391x.jpg','IMG_4080.jpeg','IMG_4027.jpeg','IMG_4085.jpeg','IMG_4033.jpeg','IMG_4069.jpeg','IMG_4037.jpeg'];
+const GW_ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X'];
+// Photos in the website repo as of 2026-10-21 (fallback if GitHub's file list can't be reached).
+const GW_KNOWN_PHOTOS = ["81746D25-6F5A-426B-8BB6-6EC446155E6D.jpeg", "Gemini_Generated_Image_2wam6y2wam6y2wam.jpg", "Gemini_Generated_Image_391xt6391xt6391x.jpg", "Gemini_Generated_Image_iv6n3tiv6n3tiv6n.jpg", "Gemini_Generated_Image_ncjt3oncjt3oncjt.jpg", "Gemini_Generated_Image_sciquxsciquxsciq.jpg", "Gemini_Generated_Image_upnib3upnib3upni.jpg", "Gemini_Generated_Image_wryhr0wryhr0wryh.jpg", "Gemini_Generated_Image_xscbqexscbqexscb.jpg", "IMG_4023.jpeg", "IMG_4024.jpeg", "IMG_4026.jpeg", "IMG_4027.jpeg", "IMG_4028.jpeg", "IMG_4029.jpeg", "IMG_4030.jpeg", "IMG_4033.jpeg", "IMG_4034.jpeg", "IMG_4035.jpeg", "IMG_4036.jpeg", "IMG_4037.jpeg", "IMG_4038.jpeg", "IMG_4039.jpeg", "IMG_4040.jpeg", "IMG_4041.jpeg", "IMG_4044.jpeg", "IMG_4046.jpeg", "IMG_4047.jpeg", "IMG_4063.jpeg", "IMG_4066.jpeg", "IMG_4069.jpeg", "IMG_4080.jpeg", "IMG_4081.jpeg", "IMG_4082.jpeg", "IMG_4085.jpeg", "IMG_4091.jpeg", "IMG_4095.jpeg", "IMG_4097.jpeg", "IMG_4098.jpeg", "botanical-memory-frame_2026-09-11_1302.jpeg", "feather-heart-keychain_2026-09-11_1302.jpeg", "forest-landscape-block_2026-09-11_1302.jpeg"];
+let gwSlots = [], gwRepoPhotos = null, gwPickIdx = 0, gwPickFilter = 'all', gwDirty = false;
+
+const gwFile = u => String(u||'').split('?')[0].split('/').pop();
+// Friendly label for a photo file that isn't attached to a shop piece.
+function gwNiceName(u){
+  const f = decodeURIComponent(gwFile(u));
+  if (/^gemini/i.test(f)) return 'Room scene ' + (((gwRepoPhotos||[]).filter(x=>/^gemini/i.test(decodeURIComponent(gwFile(x)))).indexOf(u)+1) || '');
+  const m = f.match(/^IMG_(\d+)/i); if (m) return 'Photo ' + m[1];
+  return f.replace(/_\d{4}-\d{2}-\d{2}_\d{4}/,'').replace(/\.[a-z]+$/i,'').replace(/[_-]+/g,' ').replace(/^\w/,c=>c.toUpperCase());
+}
+const gwEsc  = s => String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function gwStatus(msg, cls){ const el=document.getElementById('gw-status'); if(el){ el.innerHTML=msg; el.style.color = cls==='err' ? 'var(--coral)' : cls==='ok' ? 'var(--green, #2f7d4f)' : 'var(--muted)'; } }
+
+// Map every photo file used by a shop piece → { piece, img index, label }.
+function gwPieceIndex(){
+  const map = {};
+  pieces.forEach(p => {
+    if (p.image && !map[gwFile(p.image)]) map[gwFile(p.image)] = { p, img:0, label:'' };
+    normVars(p).forEach((v,i) => { const f=gwFile(v.image); if (f && !map[f]) map[f] = { p, img:i+1, label:v.label }; });
+  });
+  return map;
+}
+// What a slot shows: picture, name and a short line under it.
+function gwResolve(sl){
+  sl = sl || {};
+  const piece = sl.piece_id!=null && sl.piece_id!=='' ? pieces.find(x => String(x.id)===String(sl.piece_id)) : null;
+  let src = sl.src || '', sub = '';
+  if (piece && !src){
+    const n = +sl.img || 0, v = n>0 ? normVars(piece)[n-1] : null;
+    src = (v && v.image) || piece.image || '';
+    sub = v && v.label ? v.label+' colorway' : 'Main photo';
+  }
+  let name = piece ? piece.title : '';
+  if (!piece && src){ const m = gwPieceIndex()[gwFile(src)]; if (m){ name = m.p.title; sub = m.label ? m.label+' colorway' : 'Main photo'; } }
+  if (!name) name = /^data:/.test(src) ? 'Uploaded photo' : (src ? gwNiceName(src) : 'Empty frame');
+  if (piece && sl.src) sub = 'Your photo · linked to the shop piece';
+  if (sl.title) { sub = (sub ? sub+' · ' : '') + 'shop name: '+name; name = sl.title; }
+  return { src, name, sub, piece };
+}
+
+async function renderGalleryWalk(){
+  gwStatus('Loading…');
+  let saved = null;
+  try {
+    const rows = await sb.query('gallery', { select:'*', eq:{ id:'walk' } });
+    saved = rows && rows[0] && rows[0].data && Array.isArray(rows[0].data.slots) ? rows[0].data.slots : null;
+    gwStatus(saved ? 'Showing what is live on the website now.' : 'Showing the default pieces — nothing saved yet.');
+  } catch(e){
+    if (/gallery|relation|schema|404|PGRST/i.test(String(e.message||e))) gwStatus(gwSetupMsg(), 'err');
+    else gwStatus('Could not load the saved gallery — showing defaults. ('+gwEsc(e.message||e)+')', 'err');
+  }
+  gwSlots = (saved || GW_DEFAULT.map(f => ({ src: GW_RAW+f }))).slice(0,10);
+  while (gwSlots.length < 10) gwSlots.push({ src: GW_RAW+GW_DEFAULT[gwSlots.length] });
+  // Link default/repo photos to their shop piece so names and colorways show.
+  const idx = gwPieceIndex();
+  gwSlots = gwSlots.map(sl => { if (sl.src && !/^data:/.test(sl.src) && sl.piece_id==null){ const m = idx[gwFile(sl.src)]; if (m) return { piece_id:m.p.id, img:m.img, title:sl.title||'' }; } return sl; });
+  gwDirty = false;
+  gwRenderSlots();
+}
+function gwSetupMsg(){
+  return '⚠️ One-time setup needed: the <b>gallery</b> table doesn’t exist yet. In Supabase → SQL Editor, run <code>supabase/migrations/gallery_walk_2026-10-21_2045.sql</code> (or run the “Database — apply migration” GitHub workflow), then reopen this page.';
+}
+
+function gwRenderSlots(){
+  const g = document.getElementById('gw-grid'); if (!g) return;
+  const pieceOpts = pieces.slice().sort((a,b)=>String(a.title).localeCompare(String(b.title)));
+  g.innerHTML = gwSlots.map((sl,i) => {
+    const r = gwResolve(sl);
+    const usesOwnPhoto = !!sl.src;
+    return `<div class="gw-slot">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span class="gw-no">Frame No. ${GW_ROMAN[i]}</span>
+        <span><button class="btn btn-ghost btn-sm" style="padding:2px 8px" title="Move earlier" onclick="gwMove(${i},-1)" ${i===0?'disabled':''}>↑</button>
+        <button class="btn btn-ghost btn-sm" style="padding:2px 8px" title="Move later" onclick="gwMove(${i},1)" ${i===9?'disabled':''}>↓</button></span></div>
+      <div class="gw-thumb" onclick="gwOpenPicker(${i})">${r.src?`<img src="${gwEsc(r.src)}" alt="" loading="lazy">`:'<span style="opacity:1;background:none;color:var(--muted)">No picture</span>'}<span>Change picture</span></div>
+      <div><div class="gw-name">${gwEsc(r.name)}</div><div class="gw-sub">${gwEsc(r.sub)}</div></div>
+      <div class="gw-row"><button class="btn btn-amber btn-sm" onclick="gwOpenPicker(${i})">🖼 Change picture</button>
+        <button class="btn btn-ghost btn-sm" onclick="gwEditPhoto(${i})" ${r.src?'':'disabled'} title="Straighten, crop, brighten or stage this picture">✨ Photo Studio</button></div>
+      ${usesOwnPhoto ? `<select class="fsel" onchange="gwLinkPiece(${i},this.value)" title="Gives the placard the shop name and a View in Shop link">
+          <option value="">Link to a shop piece (optional)…</option>
+          ${pieceOpts.map(p=>`<option value="${gwEsc(p.id)}" ${String(p.id)===String(sl.piece_id)?'selected':''}>${gwEsc(p.title)}</option>`).join('')}
+        </select>` : ''}
+      <input class="finput" placeholder="Placard name (optional)" value="${gwEsc(sl.title||'')}" oninput="gwSetTitle(${i},this.value)">
+    </div>`;
+  }).join('');
+}
+function gwTouch(){ gwDirty = true; gwStatus('Unsaved changes — tap <b>Save &amp; publish</b> to put them on the website.'); }
+function gwMove(i,d){ const j=i+d; if (j<0||j>9) return; [gwSlots[i],gwSlots[j]]=[gwSlots[j],gwSlots[i]]; gwTouch(); gwRenderSlots(); }
+function gwSetTitle(i,v){ gwSlots[i].title = v; gwTouch(); const el=document.querySelectorAll('.gw-slot .gw-name')[i]; if (el) el.textContent = v.trim() || gwResolve(Object.assign({}, gwSlots[i], {title:''})).name; }
+function gwLinkPiece(i,id){ if (id) gwSlots[i].piece_id = id; else delete gwSlots[i].piece_id; delete gwSlots[i].img; gwTouch(); gwRenderSlots(); }
+function gwReset(){ if (!confirm('Put the 10 default pieces back in the gallery? (You still need to Save.)')) return;
+  const idx = gwPieceIndex();
+  gwSlots = GW_DEFAULT.map(f => { const m = idx[f]; return m ? { piece_id:m.p.id, img:m.img } : { src:GW_RAW+f }; });
+  gwTouch(); gwRenderSlots(); }
+
+async function gwSave(){
+  const btn = document.getElementById('gw-save'); btn.disabled = true;
+  try {
+    const slots = gwSlots.map(sl => { const o = {}; if (sl.piece_id!=null && sl.piece_id!=='') o.piece_id = sl.piece_id; if (sl.src) o.src = sl.src; else if (o.piece_id!=null) o.img = +sl.img||0; if ((sl.title||'').trim()) o.title = sl.title.trim(); return o; });
+    await sb.upsert('gallery', { id:'walk', data:{ slots }, updated_at:new Date().toISOString() }, 'id');
+    gwDirty = false;
+    gwStatus('✅ Saved — the website’s Gallery Walk now shows these pictures.', 'ok');
+    showToast('🏛️ Gallery Walk updated on your website','t-success');
+  } catch(e){
+    if (/gallery|relation|schema|404|PGRST/i.test(String(e.message||e))) gwStatus(gwSetupMsg(), 'err');
+    else gwStatus('Could not save: '+gwEsc(e.message||e), 'err');
+  } finally { btn.disabled = false; }
+}
+
+// ── photo library picker ──
+async function gwLoadRepoPhotos(){
+  if (gwRepoPhotos) return gwRepoPhotos;
+  try {
+    const r = await fetch('https://api.github.com/repos/modom123/cecethepieces/contents/?ref=main');
+    if (!r.ok) throw new Error(r.status);
+    const files = await r.json();
+    gwRepoPhotos = files.filter(f => f.type==='file' && /\.(jpe?g|png|webp|gif)$/i.test(f.name) && !/^website edits/i.test(f.name) && !/\(\d+\)\./.test(f.name)).map(f => GW_RAW + encodeURIComponent(f.name).replace(/%2F/g,'/'));
+  } catch(e){ gwRepoPhotos = GW_KNOWN_PHOTOS.map(f => GW_RAW+encodeURIComponent(f)); }   // offline / rate-limited: photos known at build time
+  return gwRepoPhotos;
+}
+function gwLibrary(){
+  const items = [], used = new Set();
+  pieces.forEach(p => {
+    const sold = (p.status||'available')==='sold';
+    const st = (p.status||'available');
+    if (p.image){ used.add(gwFile(p.image)); items.push({ kind:'shop', st, src:p.image, title:p.title, sub:'Main photo · '+(p.type||''), slot:{ piece_id:p.id, img:0 } }); }
+    normVars(p).forEach((v,i) => { used.add(gwFile(v.image)); items.push({ kind:'shop', st, src:v.image, title:p.title, sub:(v.label||'Variation '+(i+1))+' colorway', slot:{ piece_id:p.id, img:i+1 } }); });
+  });
+  (gwRepoPhotos||[]).forEach(u => { const f = decodeURIComponent(gwFile(u)); if (!used.has(gwFile(u)) && !used.has(f)) items.push({ kind:'unpub', src:u, title:gwNiceName(u), sub:'Not in the shop', slot:{ src:u } }); });
+  gwSlots.forEach(sl => { if (sl.src && /^data:/.test(sl.src)) items.push({ kind:'unpub', src:sl.src, title:'Uploaded photo', sub:'Uploaded to the gallery', slot:{ src:sl.src } }); });
+  return items;
+}
+async function gwOpenPicker(i){
+  gwPickIdx = i;
+  document.getElementById('gwp-title').textContent = 'Choose a picture for Frame No. '+GW_ROMAN[i];
+  document.getElementById('gwp-search').value = '';
+  document.getElementById('cp-overlay-gwpick').classList.add('open');
+  document.getElementById('gwp-grid').innerHTML = '<div style="grid-column:1/-1;color:var(--muted);font-size:.72rem;padding:20px">Loading your photos…</div>';
+  await gwLoadRepoPhotos();
+  gwRenderPicker();
+}
+// Open the frame's current picture in Photo Studio (AI enhance, straighten to
+// just the artwork, crop, looks, studio/room scenes). "Use as main photo"
+// puts the result back in this frame.
+function gwEditPhoto(i){ gwPickIdx=i; openPhotoStudio('gw'); }
+function gwClosePicker(){ document.getElementById('cp-overlay-gwpick').classList.remove('open'); }
+function gwFilter(f,el){ gwPickFilter = f; document.querySelectorAll('#gwp-filters .cf').forEach(c=>c.classList.toggle('active',c===el)); gwRenderPicker(); }
+let gwPickItems = [];
+function gwRenderPicker(){
+  const q = (document.getElementById('gwp-search').value||'').toLowerCase().trim();
+  const all = gwLibrary();
+  gwPickItems = all.filter(it => (gwPickFilter==='all' || it.kind===gwPickFilter) && (!q || (it.title+' '+it.sub+' '+gwFile(it.src)).toLowerCase().includes(q)));
+  const nShop = all.filter(x=>x.kind==='shop').length, nUn = all.length-nShop;
+  document.getElementById('gwp-count').textContent = `${gwPickItems.length} photo${gwPickItems.length!==1?'s':''} shown · ${nShop} in the shop · ${nUn} not in the shop`;
+  document.getElementById('gwp-grid').innerHTML = gwPickItems.length ? gwPickItems.map((it,k) => `<button class="gwp-item" onclick="gwPick(${k})" title="${gwEsc(it.title+' — '+it.sub)}">
+      <div style="background-image:url('${gwEsc(it.src).replace(/'/g,'%27')}')"></div>
+      <b>${gwEsc(it.title)}</b><i>${it.kind==='shop' ? (it.st==='available' ? '<span class="gwp-tag shop">Shop</span>' : `<span class="gwp-tag sold">${gwEsc(it.st)}</span>`) : '<span class="gwp-tag unpub">Not in shop</span>'}${gwEsc(it.sub)}</i>
+    </button>`).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:.72rem;padding:20px">No photos match.</div>';
+}
+function gwPick(k){
+  const it = gwPickItems[k]; if (!it) return;
+  const keepLink = it.kind!=='shop' && gwSlots[gwPickIdx].piece_id!=null && gwSlots[gwPickIdx].src ? gwSlots[gwPickIdx].piece_id : null;
+  gwSlots[gwPickIdx] = Object.assign({}, it.slot, keepLink!=null && it.slot.src ? { piece_id:keepLink } : {});
+  gwClosePicker(); gwTouch(); gwRenderSlots();
+  if (document.getElementById('gwp-edit').checked) gwEditPhoto(gwPickIdx);
+}
+function gwUpload(e){
+  const f = e.target.files && e.target.files[0]; e.target.value = '';
+  if (!f || !f.type.startsWith('image/')) return;
+  const r = new FileReader();
+  r.onload = ev => compressImage(ev.target.result, 1400, 0.82, c => {
+    gwSlots[gwPickIdx] = { src:c };
+    gwClosePicker(); gwTouch(); gwRenderSlots();
+    if (document.getElementById('gwp-edit').checked) { gwEditPhoto(gwPickIdx); return; }
+    showToast('📸 Photo added — link it to a shop piece if it has one, then Save','t-success');
+  });
+  r.readAsDataURL(f);
+}
 
 // ── COLLECTION ──
 function artCardHTML(p) {
@@ -7425,6 +7652,49 @@ create policy "Public access" on class_enrollments for all using (true) with che
     .pse-tbar{flex-wrap:nowrap;gap:4px}
     .pse-ib{padding:6px 7px;font-size:.64rem}
   }
+</style>
+
+<!-- GALLERY WALK — photo library picker (added 2026-10-21_2045 UTC) -->
+<div class="cp-overlay" id="cp-overlay-gwpick">
+  <div class="cp-modal" style="max-width:980px;width:94%">
+    <button class="cp-modal-close" onclick="gwClosePicker()">✕</button>
+    <div class="cp-modal-title" id="gwp-title">Choose a picture</div>
+    <div class="cp-modal-sub">Every photo you have — pieces in the shop (with all colorways), photos not in the shop yet, and anything you upload.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <input class="finput" id="gwp-search" placeholder="Search by name, colorway or file…" oninput="gwRenderPicker()" style="flex:1;min-width:200px;margin:0">
+      <div class="crm-filters" style="margin:0" id="gwp-filters">
+        <div class="cf active" data-f="all" onclick="gwFilter('all',this)">All</div>
+        <div class="cf" data-f="shop" onclick="gwFilter('shop',this)">In the shop</div>
+        <div class="cf" data-f="unpub" onclick="gwFilter('unpub',this)">Not in the shop</div>
+      </div>
+      <label class="btn btn-amber btn-sm" style="cursor:pointer;margin:0">⬆ Upload new<input type="file" accept="image/*" style="display:none" onchange="gwUpload(event)"></label>
+      <label style="font-size:.7rem;color:var(--ink2);display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="gwp-edit"> ✨ Edit in Photo Studio after choosing</label>
+    </div>
+    <div id="gwp-count" style="font-size:.66rem;color:var(--muted);margin-bottom:8px"></div>
+    <div id="gwp-grid" class="gwp-grid"></div>
+  </div>
+</div>
+<style>
+  .gw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+  .gw-slot{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+  .gw-no{font-size:.62rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+  .gw-thumb{aspect-ratio:4/5;border-radius:8px;overflow:hidden;background:#f3efe8;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative}
+  .gw-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .gw-thumb span{position:absolute;bottom:6px;left:6px;right:6px;background:rgba(0,0,0,.6);color:#fff;font-size:.62rem;padding:4px 6px;border-radius:5px;text-align:center;opacity:0;transition:opacity .2s}
+  .gw-thumb:hover span{opacity:1}
+  .gw-name{font-family:'Playfair Display',serif;font-size:.92rem;color:var(--ink);line-height:1.25}
+  .gw-sub{font-size:.64rem;color:var(--muted);margin-top:2px}
+  .gw-row{display:flex;gap:6px}
+  .gw-row .btn{flex:1}
+  .gw-slot .finput,.gw-slot .fsel{margin:0;font-size:.72rem}
+  .gwp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;max-height:60vh;overflow-y:auto;padding-right:4px}
+  .gwp-item{border:1px solid var(--border);border-radius:9px;overflow:hidden;cursor:pointer;background:var(--white);text-align:left;padding:0;font-family:inherit}
+  .gwp-item:hover{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber)}
+  .gwp-item div{aspect-ratio:1;background:#f3efe8 center/cover no-repeat}
+  .gwp-item b{display:block;font-size:.66rem;font-weight:600;color:var(--ink);padding:6px 7px 0;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gwp-item i{display:block;font-style:normal;font-size:.58rem;color:var(--muted);padding:2px 7px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gwp-tag{display:inline-block;font-size:.52rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:1px 5px;border-radius:4px;margin-right:4px;vertical-align:1px}
+  .gwp-tag.shop{background:#e6f4ea;color:#1e7a40} .gwp-tag.unpub{background:#fff1e0;color:#a35a00} .gwp-tag.sold{background:#f3e8ff;color:#6b3fa0}
 </style>
 
 <!-- ═══════════════════════════════════════════════

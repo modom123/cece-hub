@@ -1,0 +1,43 @@
+# ────────────────────────────────────────────────────────────────
+# FILE: db-migrate_2026-10-21_2050.yml
+# CREATED: 2026-10-21_2050 UTC
+# WHY: Run a SQL file from supabase/migrations/ against the live Supabase
+#      database without opening the SQL Editor. GitHub → Actions →
+#      "Database — apply migration" → Run workflow → pick the file.
+#      Uses the same SUPABASE_ACCESS_TOKEN repo secret as "Stripe — go live".
+#      All migration files here are written to be safe to re-run.
+# ────────────────────────────────────────────────────────────────
+name: Database — apply migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: "Migration file in supabase/migrations/"
+        required: true
+        default: "gallery_walk_2026-10-21_2045.sql"
+
+env:
+  PROJECT_REF: tssicoxzxcfijdlvtpqm
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply the migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          FILE: ${{ inputs.file }}
+        run: |
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "::error::Add the SUPABASE_ACCESS_TOKEN repo secret (supabase.com → Account → Access Tokens)."; exit 1; }
+          case "$FILE" in */*|..*) echo "::error::Give just the file name inside supabase/migrations/."; exit 1 ;; esac
+          P="supabase/migrations/$FILE"
+          [ -f "$P" ] || { echo "::error::$P not found."; exit 1; }
+          BODY=$(jq -Rs '{query: .}' < "$P")
+          CODE=$(curl -sS -o out.json -w '%{http_code}' -X POST \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$BODY")
+          cat out.json; echo
+          if [ "$CODE" -ge 300 ]; then echo "::error::Supabase answered $CODE"; exit 1; fi
+          echo "## ✅ Applied \`$FILE\`" >> "$GITHUB_STEP_SUMMARY"
