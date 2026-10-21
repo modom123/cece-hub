@@ -7,3 +7,4 @@
 # Go-live trigger log
 - 2026-10-21_2200 UTC — first go-live run (site: https://cecespieces.com)
 - 2026-10-21_2220 UTC — rerun after secrets added to cece-hub
+- 2026-10-21_2230 UTC — rerun with full-access Supabase token
