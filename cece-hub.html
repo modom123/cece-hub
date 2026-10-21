@@ -9,7 +9,12 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-10-21_2120 UTC
+  LAST UPDATED: 2026-10-21_2140 UTC
+  CHANGE: 2026-10-21_2140 — Cash App / Venmo / Zelle: Payments page stores
+          Venmo + Zelle details for the website's payment chooser (Cash App Pay
+          is a Stripe checkout method); Website Orders gets an "Awaiting
+          payment" filter and a 💵 Mark paid button (sold, or reserved for
+          deposits).
   CHANGE: 2026-10-21_2120 — Stripe catalog auto-sync: pieces + classes become
           Stripe Products/Prices and stay in sync via DB triggers →
           sync-stripe-catalog; Payments → "Sync to Stripe now" forces a full
@@ -837,6 +842,19 @@ tr:hover td{background:var(--bg)}
 
     <!-- PAYMENTS -->
     <div class="page" id="page-payments">
+      <!-- Venmo / Zelle / Cash App (added 2026-10-21_2140 UTC) -->
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-head"><span class="card-title">📲 Cash App, Venmo &amp; Zelle</span></div>
+        <div style="font-size:.74rem;color:var(--muted);line-height:1.6;margin-bottom:10px">
+          <b>Cash App Pay</b> runs through Stripe — turn it on once in Stripe → Settings → Payment methods → <i>Cash App Pay</i>, and it appears in checkout next to cards, Apple Pay and Google Pay.<br>
+          <b>Venmo &amp; Zelle</b> don't connect to websites automatically, so buyers see your details, an order code for the memo, and the order lands in <b>Website Orders</b> as <i>awaiting payment</i>. When the money arrives, tap <b>💵 Mark paid</b>. Leave a box empty to hide that option.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+          <div class="fg"><label class="flabel">Venmo username</label><input class="finput" id="pay-venmo" placeholder="@cecespieces"></div>
+          <div class="fg"><label class="flabel">Zelle email or phone</label><input class="finput" id="pay-zelle" placeholder="you@email.com or (555) 000-0000"></div>
+          <div class="fg"><label class="flabel">Name on Zelle</label><input class="finput" id="pay-zelle-name" placeholder="Cece …"></div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button class="btn btn-amber btn-sm" onclick="savePayHandles()">💾 Save payment options</button><span id="pay-handles-status" style="font-size:.7rem;color:var(--muted)"></span></div>
+      </div>
       <!-- Stripe catalog sync (added 2026-10-21_2120 UTC) -->
       <div class="card" style="margin-bottom:18px">
         <div class="card-head" style="flex-wrap:wrap;gap:8px"><span class="card-title">🔄 Stripe catalog — updates automatically</span>
@@ -1124,6 +1142,7 @@ tr:hover td{background:var(--bg)}
             <div class="cf" onclick="filterOrders('inquiry',this)">Inquiries</div>
             <div class="cf" onclick="filterOrders('purchase',this)">Purchases</div>
             <div class="cf" onclick="filterOrders('deposit',this)">Deposits</div>
+            <div class="cf" onclick="filterOrders('awaiting',this)">💵 Awaiting payment</div>
             <div class="cf" onclick="filterOrders('rental',this)">Rentals</div>
           </div>
         </div>
@@ -2565,6 +2584,7 @@ function goPage(id, btn) {
   if (id === 'newsletter')  renderNewsletter();
   if (id === 'pricing')     renderPricing();
   if (id === 'gallerywalk') renderGalleryWalk();
+  if (id === 'payments')    loadPayHandles();
   if (id === 'orders')      renderOrders();
   if (id === 'collection')  renderCollection();
   if (id === 'crm')         renderCRM();
@@ -4361,6 +4381,43 @@ function gwUpload(e){
   r.readAsDataURL(f);
 }
 
+// ── VENMO / ZELLE HANDLES (added 2026-10-21_2140 UTC) ──
+// Stored in the public `gallery` table (row 'pay') so the website can show
+// them in its payment chooser. Never put anything secret here.
+async function loadPayHandles(){
+  try{
+    const rows=await sb.query('gallery',{select:'*',eq:{id:'pay'}});
+    const d=(rows&&rows[0]&&rows[0].data)||{};
+    document.getElementById('pay-venmo').value=d.venmo||'';
+    document.getElementById('pay-zelle').value=d.zelle||'';
+    document.getElementById('pay-zelle-name').value=d.zelle_name||'';
+  }catch(e){ document.getElementById('pay-handles-status').textContent='Run the database setup SQL first (stripe_catalog_sync_2026-10-21_2120.sql).'; }
+}
+async function savePayHandles(){
+  const venmo=document.getElementById('pay-venmo').value.trim().replace(/^@/,'');
+  const data={ venmo, zelle:document.getElementById('pay-zelle').value.trim(), zelle_name:document.getElementById('pay-zelle-name').value.trim() };
+  const st=document.getElementById('pay-handles-status');
+  try{ await sb.upsert('gallery',{ id:'pay', data, updated_at:new Date().toISOString() },'id'); st.textContent='✅ Saved — live on your website checkout.'; showToast('📲 Payment options saved','t-success'); }
+  catch(e){ st.textContent='⚠️ Could not save — run the database setup SQL first.'; }
+}
+// A Venmo/Zelle order: payment received. Full price → sold; deposit → reserved
+// (balance invoiced later from the order, same as a card deposit).
+async function markOrderPaid(id){
+  const o=orders.find(x=>x.id===id); if(!o) return;
+  const isDep=o.type==='deposit';
+  try{
+    if(CONFIGURED){
+      await sb.update('orders',id,{ status:isDep?'deposit-paid':'confirmed' });
+      if(o.piece_id) await sb.update('pieces',o.piece_id,{ status:isDep?'reserved':'sold' });
+    }
+    o.status=isDep?'deposit-paid':'confirmed';
+    const p=pieces.find(x=>x.id===o.piece_id); if(p){ p.status=isDep?'reserved':'sold'; renderCollection(); refreshDash(); }
+    renderOrdersTable();
+    addActivity(`💵 ${o.source==='venmo'?'Venmo':o.source==='zelle'?'Zelle':'Payment'} received: <strong>${o.piece_title}</strong>${o.price?' · $'+o.price:''}`);
+    showToast(isDep?'💵 Deposit marked paid — piece reserved':'💵 Marked paid — piece sold','t-success');
+  }catch(e){ showToast('Error updating the order','t-error'); }
+}
+
 // ── STRIPE CATALOG SYNC (added 2026-10-21_2120 UTC) ──
 // Pieces/classes reach Stripe automatically via database triggers; this is a
 // manual full refresh. The function accepts a signed-in hub user's token.
@@ -5735,6 +5792,7 @@ function renderOrdersTable() {
   if (ordersFilter === 'purchase') list = orders.filter(o=>o.type==='purchase');
   if (ordersFilter === 'deposit')  list = orders.filter(o=>o.type==='deposit');
   if (ordersFilter === 'rental')   list = orders.filter(o=>o.type==='rental');
+  if (ordersFilter === 'awaiting') list = orders.filter(o=>o.status==='awaiting-payment');
   if (!list.length) {
     body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;font-size:.78rem">No orders yet &#8212; they&#39;ll appear here when customers interact with your website.</td></tr>';
     return;
@@ -5743,17 +5801,18 @@ function renderOrdersTable() {
   body.innerHTML = list.map(o => {
     const piece = pieces.find(p=>p.id===o.piece_id);
     const date = o.created_at ? new Date(o.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
-    const statusColor = o.status==='confirmed'?'color:var(--green)':o.status==='pending'?'color:var(--amber)':'color:var(--muted)';
+    const statusColor = o.status==='confirmed'?'color:var(--green)':(o.status==='pending'||o.status==='awaiting-payment')?'color:var(--amber)':'color:var(--muted)';
+    const viaApp = o.source==='venmo'?' · Venmo':o.source==='zelle'?' · Zelle':'';
     return `<tr onclick="openOrderModal('${o.id}')" style="cursor:pointer">
       <td><strong>${o.piece_title||piece?.title||'Unknown piece'}</strong></td>
       <td><span class="ct ${typeColors[o.type]||''}">${o.type||'inquiry'}</span></td>
       <td style="font-size:.73rem">${o.customer_name||o.customer_email||'Website visitor'}</td>
       <td style="font-weight:600;color:var(--amber)">${o.price?'$'+o.price:'—'}</td>
-      <td style="font-size:.72rem;font-weight:600;${statusColor}">${o.status||'pending'}</td>
+      <td style="font-size:.72rem;font-weight:600;${statusColor}">${o.status==='awaiting-payment'?'awaiting payment'+viaApp:(o.status||'pending')}</td>
       <td style="font-size:.7rem;color:var(--muted)">${date}</td>
       <td>
         <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openOrderModal('${o.id}')">View</button>
-        <button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="event.stopPropagation();confirmOrder('${o.id}')">✓ Confirm</button>
+        ${o.status==='awaiting-payment'?`<button class="btn btn-green btn-xs" style="margin-left:4px" onclick="event.stopPropagation();markOrderPaid('${o.id}')">💵 Mark paid</button>`:`<button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="event.stopPropagation();confirmOrder('${o.id}')">✓ Confirm</button>`}
         <button class="btn btn-amber btn-xs" style="margin-left:4px" onclick="event.stopPropagation();markPieceSoldFromOrder('${o.id}')">Mark Sold</button>
       </td>
     </tr>`;
