@@ -1,0 +1,87 @@
+# ────────────────────────────────────────────────────────────────
+# FILE: go-live-audit_2026-10-21_2330.yml
+# CREATED: 2026-10-21_2330 UTC
+# WHY: Read-only "ready to take orders?" audit — live sites, database &
+#      security rules, payment functions, auto-sync, and the Stripe account.
+#      Makes NO changes (GET requests + SELECT queries only).
+#      Runs when supabase/AUDIT_TRIGGER.md changes on main, or by hand.
+# ────────────────────────────────────────────────────────────────
+name: Go-live audit (read-only)
+
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/AUDIT_TRIGGER.md']
+  workflow_dispatch:
+
+env:
+  PROJECT_REF: tssicoxzxcfijdlvtpqm
+  SB: https://tssicoxzxcfijdlvtpqm.supabase.co
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit
+        env:
+          T: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SK: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: |
+          set +e
+          ANON=$(grep -o "eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*" cece-hub.html | head -1)
+          A=(-H "apikey: $ANON" -H "Authorization: Bearer $ANON")
+          SQL(){ curl -s -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$(jq -n --arg q "$1" '{query:$q}')"; }
+          KEY="$(printf %s "$SK" | tr -d '[:space:]')"
+          ST(){ curl -s -u "$KEY:" "https://api.stripe.com/v1/$1"; }
+
+          echo "=================== 1. LIVE SITES"
+          for u in https://cecespieces.com https://www.cecespieces.com https://cecethepieces.vercel.app https://cecewebsite.vercel.app https://cece-hub.vercel.app https://cecepieceshub.vercel.app; do
+            c=$(curl -s -L -o /tmp/p.html -w '%{http_code} %{url_effective}' --max-time 20 "$u")
+            feat=""; grep -q 'id="giEnter"' /tmp/p.html && feat="$feat gallery"; grep -q 'id="payModal"' /tmp/p.html && feat="$feat paychooser"; grep -q 'page-gallerywalk' /tmp/p.html && feat="$feat hub-gallerywalk"; grep -q 'syncStripeCatalog' /tmp/p.html && feat="$feat hub-stripesync"
+            echo "$u -> $c |$feat"
+          done
+          echo "DNS cecespieces.com: $(dig +short cecespieces.com A | tr '\n' ' ') CNAME www: $(dig +short www.cecespieces.com CNAME)"
+
+          echo "=================== 2. CATALOG (public view)"
+          P=$(curl -s "${A[@]}" "$SB/rest/v1/pieces?select=id,title,type,price,deposit,status,image,stripe_product_id")
+          echo "$P" | jq -r '"pieces=\(length)  available=\([.[]|select((.status//"available")=="available")]|length)  sold=\([.[]|select(.status=="sold")]|length)  reserved/hold=\([.[]|select(.status=="reserved" or .status=="hold")]|length)"'
+          echo "$P" | jq -r '"no price=\([.[]|select((.price//"")=="")]|length)  with deposit=\([.[]|select((.deposit//"")!="")]|length)  no photo=\([.[]|select((.image//"")=="")]|length)  photo stored as upload(data:)=\([.[]|select((.image//"")|startswith("data:"))]|length)  synced to Stripe=\([.[]|select(.stripe_product_id!=null)]|length)"'
+          echo "--- deposit vs price per piece"
+          echo "$P" | jq -r '.[] | "  \(.title) | \(.type) | price \(.price) | deposit \(.deposit // "-") | \(.status // "available")"'
+          C=$(curl -s "${A[@]}" "$SB/rest/v1/classes?select=title,price,active,type")
+          echo "classes: $(echo "$C" | jq -r '"\(length) total, \([.[]|select(.active!=false)]|length) active"')"
+          echo "gallery rows: $(curl -s "${A[@]}" "$SB/rest/v1/gallery?select=id" | jq -c '[.[]?.id]')"
+
+          echo "=================== 3. SECURITY (what the public key can see)"
+          echo "settings (API keys) rows visible to public: $(curl -s "${A[@]}" "$SB/rest/v1/settings?select=id" | jq -c 'if type=="array" then length else . end')"
+          echo "contacts rows visible to public: $(curl -s "${A[@]}" "$SB/rest/v1/contacts?select=id" | jq -c 'if type=="array" then length else . end')"
+          echo "orders rows visible to public: $(curl -s "${A[@]}" "$SB/rest/v1/orders?select=id&limit=5" | jq -c 'if type=="array" then length else . end')"
+          echo "stripe_sync_config visible to public: $(curl -s "${A[@]}" "$SB/rest/v1/stripe_sync_config?select=id" | jq -c 'if type=="array" then length else . end')"
+          echo "app_secret() callable by public: HTTP $(curl -s -o /dev/null -w '%{http_code}' "${A[@]}" -H 'Content-Type: application/json' -X POST "$SB/rest/v1/rpc/app_secret" -d '{"n":"STRIPE_SECRET_KEY"}')"
+          echo "--- policies"
+          SQL "select tablename, policyname, cmd, roles::text from pg_policies where schemaname='public' order by tablename, policyname" | jq -r '.[]? | "  \(.tablename): \(.policyname) [\(.cmd)] \(.roles)"'
+          echo "--- tables with RLS OFF (public schema)"
+          SQL "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity" | jq -r '.[]?.relname' | sed 's/^/  /'
+          echo "--- stored app settings (names only)"
+          SQL "select name, length(value) as len, left(value,8) as starts, updated_at from private.app_secrets order by name" | jq -r '.[]? | "  \(.name) len=\(.len) starts=\(.starts | if test("^sk_|^whsec") then .[0:8] else . end) updated=\(.updated_at)"'
+
+          echo "=================== 4. PAYMENT FUNCTIONS"
+          echo "create-checkout ping: $(curl -s "${A[@]}" -H 'Content-Type: application/json' -X POST "$SB/functions/v1/create-checkout" -d '{"_ping":true}' | jq -c '{stripe_status,starts,had_whitespace}')"
+          echo "sync-stripe-catalog without auth (expect 401): HTTP $(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -X POST "$SB/functions/v1/sync-stripe-catalog" -d '{"full":true}')"
+          echo "stripe-webhook unsigned (expect 400): HTTP $(curl -s -o /dev/null -w '%{http_code}' -X POST "$SB/functions/v1/stripe-webhook" -d '{}')"
+          echo "send-balance-invoice unauth (expect 401/400): HTTP $(curl -s -o /dev/null -w '%{http_code}' -X POST "$SB/functions/v1/send-balance-invoice" -d '{}')"
+          echo "--- auto-sync triggers"
+          SQL "select tgname, tgrelid::regclass::text as tbl from pg_trigger where tgname like '%stripe_sync%' order by 1" | jq -r '.[]? | "  \(.tbl): \(.tgname)"'
+          echo "--- last trigger calls to the sync function (HTTP status)"
+          SQL "select status_code, left(coalesce(content,error_msg,''),120) as body, created from net._http_response order by created desc limit 5" | jq -r '.[]? | "  \(.created) \(.status_code) \(.body)"'
+          echo "--- recent orders (no personal data)"
+          SQL "select type, status, source, count(*) n from orders group by 1,2,3 order by 4 desc limit 15" | jq -r '.[]? | "  \(.type) / \(.status) / \(.source) : \(.n)"'
+
+          echo "=================== 5. STRIPE ACCOUNT"
+          ST account | jq -r '"mode=\(if (env.KEY|startswith("sk_live")) then "LIVE" else "TEST" end) charges_enabled=\(.charges_enabled) payouts_enabled=\(.payouts_enabled) details_submitted=\(.details_submitted) country=\(.country) name=\(.business_profile.name // .settings.dashboard.display_name) statement_descriptor=\(.settings.payments.statement_descriptor) support_email=\(.business_profile.support_email) currently_due=\(.requirements.currently_due|length) disabled_reason=\(.requirements.disabled_reason)"' KEY="$KEY"
+          echo "webhooks: $(ST 'webhook_endpoints?limit=20' | jq -c '[.data[]? | {url, status, events: .enabled_events}]')"
+          echo "active products: $(ST 'products?active=true&limit=100' | jq '.data|length')  archived: $(ST 'products?active=false&limit=100' | jq '.data|length')"
+          echo "payment methods (default config):"
+          ST 'payment_method_configurations?limit=5' | jq -r '.data[]? | select(.is_default==true) | to_entries[] | select(.value|type=="object" and has("available")) | "  \(.key): available=\(.value.available) on=\(.value.display_preference.value)"' | grep -E "card|apple_pay|google_pay|cashapp|link|klarna|affirm|afterpay"
+          echo "last 5 charges: $(ST 'charges?limit=5' | jq -c '[.data[]? | {amount: (.amount/100), status, paid, refunded, created: (.created|todate)}]')"
