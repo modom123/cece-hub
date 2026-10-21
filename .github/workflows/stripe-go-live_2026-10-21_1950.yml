@@ -1,0 +1,129 @@
+# ────────────────────────────────────────────────────────────────
+# FILE: stripe-go-live_2026-10-21_1950.yml
+# CREATED: 2026-10-21_1950 UTC
+# WHY: One-click Stripe setup for cecespieces. Run it from GitHub →
+#      Actions → "Stripe — go live" → Run workflow. It:
+#        1. stores the Stripe key + site URL as Supabase secrets
+#        2. deploys create-checkout, stripe-webhook, send-balance-invoice
+#        3. creates the Stripe webhook endpoint (checkout + invoice events)
+#           and stores its signing secret — no dashboard clicking
+#        4. tests that checkout can reach Stripe and lists priced pieces
+#      Needs two GitHub repo secrets (Settings → Secrets → Actions):
+#        SUPABASE_ACCESS_TOKEN  — supabase.com → Account → Access Tokens
+#        STRIPE_SECRET_KEY      — Stripe → Developers → API keys (sk_test_… or sk_live_…)
+#      Safe to re-run any time (e.g. when switching test → live keys).
+# ────────────────────────────────────────────────────────────────
+name: Stripe — go live
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "Live website URL (where buyers return after paying)"
+        required: true
+        default: "https://cecespieces.com"
+
+env:
+  PROJECT_REF: tssicoxzxcfijdlvtpqm
+  SUPABASE_URL: https://tssicoxzxcfijdlvtpqm.supabase.co
+
+jobs:
+  go-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the two required secrets are set
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: |
+          ok=1
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "::error::Add the SUPABASE_ACCESS_TOKEN repo secret (supabase.com → Account → Access Tokens)."; ok=0; }
+          [ -n "$STRIPE_SECRET_KEY" ]     || { echo "::error::Add the STRIPE_SECRET_KEY repo secret (Stripe → Developers → API keys)."; ok=0; }
+          [ $ok = 1 ] || exit 1
+          case "$STRIPE_SECRET_KEY" in
+            sk_live_*) echo "MODE=LIVE — real cards will be charged" >> "$GITHUB_ENV" ;;
+            sk_test_*) echo "MODE=TEST — use card 4242 4242 4242 4242" >> "$GITHUB_ENV" ;;
+            rk_*)      echo "MODE=RESTRICTED KEY — must allow Checkout Sessions, Webhook Endpoints, Customers, Invoices (write)" >> "$GITHUB_ENV" ;;
+            *)         echo "::error::STRIPE_SECRET_KEY doesn't look like a Stripe secret key (sk_… or rk_…)."; exit 1 ;;
+          esac
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Store Stripe key and site URL in Supabase
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          SITE_URL: ${{ inputs.site_url }}
+        run: |
+          supabase secrets set --project-ref "$PROJECT_REF" \
+            STRIPE_SECRET_KEY="$(printf %s "$STRIPE_SECRET_KEY" | tr -d '[:space:]')" \
+            SITE_URL="$SITE_URL"
+
+      - name: Deploy the payment functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy create-checkout      --project-ref "$PROJECT_REF"
+          supabase functions deploy send-balance-invoice --project-ref "$PROJECT_REF"
+          supabase functions deploy stripe-webhook       --project-ref "$PROJECT_REF" --no-verify-jwt
+
+      - name: Create the Stripe webhook and store its signing secret
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: |
+          KEY="$(printf %s "$STRIPE_SECRET_KEY" | tr -d '[:space:]')"
+          URL="$SUPABASE_URL/functions/v1/stripe-webhook"
+          # A signing secret is only revealed when an endpoint is created, so
+          # replace any existing endpoint for this URL with a fresh one.
+          for id in $(curl -sS -u "$KEY:" "https://api.stripe.com/v1/webhook_endpoints?limit=100" | jq -r --arg u "$URL" '.data[]? | select(.url==$u) | .id'); do
+            curl -sS -u "$KEY:" -X DELETE "https://api.stripe.com/v1/webhook_endpoints/$id" > /dev/null && echo "Replaced old endpoint $id"
+          done
+          RESP=$(curl -sS -u "$KEY:" https://api.stripe.com/v1/webhook_endpoints \
+            -d url="$URL" \
+            -d "enabled_events[]=checkout.session.completed" \
+            -d "enabled_events[]=invoice.paid" \
+            -d description="cecespieces — mark pieces sold / confirm deposits & classes")
+          WHSEC=$(echo "$RESP" | jq -r '.secret // empty')
+          if [ -z "$WHSEC" ]; then
+            echo "::error::Stripe would not create the webhook: $(echo "$RESP" | jq -r '.error.message // "unknown error"')"; exit 1
+          fi
+          echo "::add-mask::$WHSEC"
+          supabase secrets set --project-ref "$PROJECT_REF" STRIPE_WEBHOOK_SECRET="$WHSEC"
+          echo "Webhook endpoint $(echo "$RESP" | jq -r .id) created → $URL"
+
+      - name: Test checkout end-to-end
+        run: |
+          ANON=$(grep -o "eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*" cece-hub.html | head -1)
+          H=(-H "apikey: $ANON" -H "Authorization: Bearer $ANON" -H "Content-Type: application/json")
+          sleep 5
+          PING=$(curl -sS "${H[@]}" -X POST "$SUPABASE_URL/functions/v1/create-checkout" -d '{"_ping":true}')
+          STATUS=$(echo "$PING" | jq -r '.stripe_status // "no response"')
+          PIECES=$(curl -sS "${H[@]}" "$SUPABASE_URL/rest/v1/pieces?select=id,title,price,deposit,status&order=title")
+          PRICED=$(echo "$PIECES" | jq '[.[]? | select((.price // "") != "" and (.status // "available") != "sold")] | length')
+          DEPOS=$(echo "$PIECES" | jq '[.[]? | select((.deposit // "") != "")] | length')
+          FIRST=$(echo "$PIECES" | jq -r '[.[]? | select((.price // "") != "" and (.status // "available") != "sold")][0].id // empty')
+          CO="(no priced piece to test)"
+          if [ -n "$FIRST" ]; then
+            CO=$(curl -sS "${H[@]}" -X POST "$SUPABASE_URL/functions/v1/create-checkout" -d "{\"piece_id\":\"$FIRST\"}" | jq -r 'if .url then "✅ Stripe checkout page created" else "❌ " + (.error // "failed") end')
+          fi
+          {
+            echo "## Stripe setup — $MODE"
+            echo ""
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| Payment functions deployed | ✅ |"
+            echo "| Webhook created + signing secret stored | ✅ |"
+            echo "| Checkout can reach Stripe | $([ "$STATUS" = "200" ] && echo "✅" || echo "❌ (Stripe answered $STATUS — check the key)") |"
+            echo "| Pieces for sale with a price | $PRICED |"
+            echo "| Pieces taking a deposit | $DEPOS |"
+            echo "| Test checkout for a real piece | $CO |"
+            echo ""
+            echo "Prices are read from the hub's database at the moment of purchase, so any price you change in the hub is what Stripe charges — no re-run needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+          [ "$STATUS" = "200" ] || exit 1

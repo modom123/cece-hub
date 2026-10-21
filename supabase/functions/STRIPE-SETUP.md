@@ -1,5 +1,16 @@
 # Stripe Checkout setup (cecespieces)
 
+> **Fastest way (2026-10-21): no command line needed.**
+> 1. GitHub → this repo → **Settings → Secrets and variables → Actions → New repository secret**, add:
+>    - `SUPABASE_ACCESS_TOKEN` — supabase.com → your avatar → **Account → Access Tokens → Generate**
+>    - `STRIPE_SECRET_KEY` — Stripe → **Developers → API keys → Secret key** (start with `sk_test_…`)
+> 2. GitHub → **Actions → "Stripe — go live" → Run workflow**.
+> 3. Read the summary: every row should be ✅. Test a purchase with card `4242 4242 4242 4242`.
+> 4. To take real money: replace `STRIPE_SECRET_KEY` with your `sk_live_…` key and run it again.
+>
+> The workflow does steps 1–5b below for you, including creating the webhook.
+
+
 Real card payments for **both artwork and Academy classes**. Two small Edge
 Functions do the work; you deploy them once and paste a couple of keys. ~20 min.
 
