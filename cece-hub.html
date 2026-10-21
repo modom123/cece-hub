@@ -9,7 +9,17 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-09-22_2346 UTC
+  LAST UPDATED: 2026-10-21_1900 UTC
+  CHANGE: 2026-10-21_1900 — Photo Studio Pro: rebuilt the photo editor as a
+          full-screen, non-destructive studio. AI Art Director (Claude vision
+          picks the edits + explains them), AI Detect Artwork with perspective
+          straighten (drag-to-refine corners), Instant Auto-Fix (histogram
+          levels + cast removal), 14 pro sliders (exposure, highlights,
+          shadows, whites, blacks, warmth, tint, vibrance, clarity, sharpen,
+          vignette, grain…), 11 looks with live thumbnails + strength, crop
+          with aspect presets, straighten/rotate/flip, studio backdrops, room
+          mockups, before/after split, undo/redo, full-res download and a
+          social pack (square / portrait / story).
   CHANGE: 2026-09-22_2346 — AI + variations pass: updated the Anthropic model to
           claude-sonnet-5 (Curator, Sales, Marketing & all agents) so the
           Curator's vision copy reliably works. Auto-create color variations is
@@ -3507,34 +3517,217 @@ async function savePieceVariations() {
 }
 
 // ═══════════════ PHOTO STUDIO — enhance a photo & make variations ═══════════════
-let PS = { which:'pub', imgEl:null, src:'' };
-const PS_PRESETS = [
-  { name:'Original',      adj:{ brightness:1,    contrast:1,    saturate:1,    warmth:0,   sharpen:0,    vignette:0    } },
-  { name:'Bright & Airy', adj:{ brightness:1.14, contrast:0.98, saturate:1.06, warmth:6,   sharpen:0.2,  vignette:0    } },
-  { name:'Vivid',         adj:{ brightness:1.03, contrast:1.2,  saturate:1.42, warmth:2,   sharpen:0.4,  vignette:0.05 } },
-  { name:'Warm Gold',     adj:{ brightness:1.05, contrast:1.05, saturate:1.16, warmth:26,  sharpen:0.25, vignette:0.06 } },
-  { name:'Cool',          adj:{ brightness:1.03, contrast:1.06, saturate:1.1,  warmth:-22, sharpen:0.25, vignette:0.04 } },
-  { name:'Studio',        adj:{ brightness:1.12, contrast:1.08, saturate:1.08, warmth:4,   sharpen:0.35, vignette:0.14 } },
-  { name:'Mono',          adj:{ brightness:1.05, contrast:1.16, saturate:0,    warmth:0,   sharpen:0.3,  vignette:0.1  } },
+// ── PHOTO STUDIO PRO (rebuilt 2026-10-21_1900 UTC) ──
+// Non-destructive editor. Everything is described by PS.st (geometry, tone,
+// look, scene); the preview and the export are both re-rendered from the
+// original photo, so edits never stack up JPEG loss. Pipeline:
+//   source → perspective warp (quad) → rotate/flip → straighten → crop
+//          → tone (levels, light, color, clarity, sharpen, vignette, grain)
+//          → scene (studio backdrop / room mockup)
+// AI: the Art Director (Claude vision) returns slider values + a critique;
+// Detect Artwork returns the piece's four corners for the warp. Both send a
+// ≤1024px JPEG via askClaude() with the hub's Anthropic key.
+const PS_ADJ0 = { exposure:0, contrast:0, highlights:0, shadows:0, whites:0, blacks:0, saturation:0, vibrance:0, warmth:0, tint:0, clarity:0, sharpen:0, vignette:0, grain:0 };
+const PS_SLIDERS = [
+  ['light','exposure','Exposure',-2,2,.05], ['light','contrast','Contrast',-100,100,1], ['light','highlights','Highlights',-100,100,1],
+  ['light','shadows','Shadows',-100,100,1], ['light','whites','Whites',-100,100,1], ['light','blacks','Blacks',-100,100,1],
+  ['color','warmth','Warmth',-100,100,1], ['color','tint','Tint',-100,100,1], ['color','vibrance','Vibrance',-100,100,1], ['color','saturation','Saturation',-100,100,1],
+  ['detail','clarity','Clarity',-100,100,1], ['detail','sharpen','Sharpen',0,100,1], ['detail','vignette','Vignette',0,100,1], ['detail','grain','Film grain',0,100,1],
 ];
-function psClamp(v){ return v<0?0:v>255?255:v; }
-function psGetAdj(){
-  const g = id => parseFloat(document.getElementById(id).value);
-  return { brightness:g('ps-brightness'), contrast:g('ps-contrast'), saturate:g('ps-saturate'), warmth:g('ps-warmth'), sharpen:g('ps-sharpen'), vignette:g('ps-vignette') };
-}
-function psSetAdj(a){
-  const s = (id,v) => { const el=document.getElementById(id); if(el && v!=null) el.value=v; };
-  s('ps-brightness',a.brightness); s('ps-contrast',a.contrast); s('ps-saturate',a.saturate);
-  s('ps-warmth',a.warmth); s('ps-sharpen',a.sharpen); s('ps-vignette',a.vignette);
-}
-function renderPsPresets(){
-  const el=document.getElementById('ps-presets');
-  el.innerHTML = PS_PRESETS.map((p,i)=>`<button type="button" class="ps-preset" onclick="psApplyPreset(${i})">${p.name}</button>`).join('');
-}
-function psApplyPreset(i){ psSetAdj(PS_PRESETS[i].adj); psRender(); }
-function psReset(){ psSetAdj({ brightness:1, contrast:1, saturate:1, warmth:0, sharpen:0, vignette:0 }); psRender(); }
+const PS_RANGE = Object.fromEntries(PS_SLIDERS.map(s=>[s[1],[s[3],s[4]]]));
+const PS_LOOKS = [
+  { name:'None',          d:{} },
+  { name:'Natural Pop',   d:{ contrast:12, vibrance:22, clarity:12, sharpen:15 } },
+  { name:'Bright & Airy', d:{ exposure:.35, shadows:25, highlights:-10, contrast:-6, vibrance:10, warmth:4 } },
+  { name:'Gallery',       d:{ contrast:10, highlights:-22, shadows:12, whites:10, clarity:22, sharpen:25, saturation:-4 } },
+  { name:'Warm Gold',     d:{ warmth:28, vibrance:16, contrast:8, highlights:-8 } },
+  { name:'Cool Coastal',  d:{ warmth:-24, tint:-4, vibrance:14, exposure:.1 } },
+  { name:'Vivid',         d:{ contrast:18, saturation:30, vibrance:20, clarity:10 } },
+  { name:'Moody',         d:{ exposure:-.25, contrast:22, shadows:-15, highlights:-15, saturation:-10, vignette:35, clarity:15 } },
+  { name:'Film',          d:{ contrast:-8, blacks:22, warmth:10, saturation:-12, grain:35 } },
+  { name:'Mono',          d:{ saturation:-100, contrast:20, clarity:15 } },
+  { name:'Noir',          d:{ saturation:-100, contrast:40, exposure:-.15, vignette:45 } },
+];
+const PS_ASPECTS = [ ['Free',0], ['Original',-1], ['1:1',1], ['4:5',4/5], ['3:2',3/2], ['2:3',2/3], ['16:9',16/9], ['9:16',9/16] ];
+const PS_BACKDROPS = [ ['white','Gallery White','#f6f4f0'], ['linen','Linen','#e9e1d3'], ['stone','Stone','#cfcac2'], ['blush','Blush','#efdcd6'], ['sage','Sage','#d5dccf'], ['noir','Noir','#141116'] ];
+const PS_ROOM_BASE = 'https://raw.githubusercontent.com/modom123/cecethepieces/main/';
+// rect = where the existing wall art sits in the photo [x, y, w, h] (fractions).
+const PS_ROOMS = [
+  { name:'Executive Boardroom', src:PS_ROOM_BASE+'Gemini_Generated_Image_xscbqexscbqexscb.jpg', rect:[.372,.25,.352,.33] },
+  { name:'Modern Living Room',  src:PS_ROOM_BASE+'Gemini_Generated_Image_391xt6391xt6391x.jpg', rect:[.468,.165,.317,.37] },
+  { name:'Gallery Wall',        draw:'gallery', thumb:'linear-gradient(180deg,#f1efea 0 72%,#c7b294 72%)' },
+  { name:'Noir Salon',          draw:'noir',    thumb:'radial-gradient(ellipse at 50% 30%,#3a3036,#141116 70%)' },
+];
+const PS_PREV = 1100, PS_SAVE = 1600, PS_FULL = 2600;
 
-// Unsharp-mask sharpen (3×3). Returns a new ImageData.
+let PS = { which:'pub', src:'', imgEl:null, st:null, hist:[], fut:[], tab:'ai', quadEdit:null, compare:false, split:.5,
+           srcCache:{}, geoCache:{}, roomImg:{}, raf:0, tainted:false, built:false };
+
+function psNewState(){ return { quad:null, rot:0, flip:false, angle:0, crop:null, aspect:-1, adj:{...PS_ADJ0}, look:0, lookAmt:100, scene:{ mode:'none', backdrop:'white', room:0, scale:100 } }; }
+function psClone(o){ return JSON.parse(JSON.stringify(o)); }
+function psClamp(v){ return v<0?0:v>255?255:v; }
+function psCl(v,a,b){ return v<a?a:v>b?b:v; }
+
+// ── open / close ──
+function openPhotoStudio(which){
+  const src = which==='pm' ? (pieces.find(p=>p.id===currentPieceId)||{}).image : imgData;
+  if(!src){ showToast('Upload or open a photo first.','t-error'); return; }
+  PS.which=which; PS.src=src;
+  const img=new Image(); img.crossOrigin='anonymous';
+  img.onload=()=>{
+    PS.imgEl=img; PS.srcCache={}; PS.geoCache={}; PS.tainted=false; PS.quadEdit=null; PS.compare=false;
+    PS.st=psNewState(); PS.hist=[psClone(PS.st)]; PS.fut=[];
+    psBuildUI(); psSetTab('ai'); psSyncUI();
+    document.getElementById('pse-crit').classList.remove('on');
+    document.getElementById('cp-overlay-photostudio').classList.add('open');
+    psRender();
+  };
+  img.onerror=()=>showToast('Could not load this image. Re-upload it and try again.','t-error');
+  img.src=src;
+}
+function closePhotoStudio(){ document.getElementById('cp-overlay-photostudio').classList.remove('open'); PS.quadEdit=null; }
+
+function psBuildUI(){
+  if(PS.built) return; PS.built=true;
+  ['light','color','detail'].forEach(g=>{
+    document.getElementById('pse-sl-'+g).innerHTML = PS_SLIDERS.filter(s=>s[0]===g).map(([,k,l,mn,mx,st])=>
+      `<div class="pse-sl"><label for="pse-a-${k}" ondblclick="psSetAdjKey('${k}',0,true)" title="Double-click to reset">${l} <b id="pse-v-${k}">0</b></label>
+       <input type="range" id="pse-a-${k}" min="${mn}" max="${mx}" step="${st}" value="0" oninput="psSetAdjKey('${k}',this.value)" onchange="psCommit()"></div>`).join('');
+  });
+  document.getElementById('pse-aspects').innerHTML = PS_ASPECTS.map((a,i)=>`<button class="pse-chip" data-a="${i}" onclick="psSetAspect(${i})">${a[0]}</button>`).join('');
+  document.getElementById('pse-backdrops').innerHTML = PS_BACKDROPS.map(b=>`<button class="pse-chip" data-b="${b[0]}" onclick="psSetScene('studio','${b[0]}')"><i style="background:${b[2]}"></i>${b[1]}</button>`).join('');
+  document.getElementById('pse-rooms').innerHTML = PS_ROOMS.map((r,i)=>`<button class="pse-room" data-r="${i}" onclick="psSetScene('room',${i})"><div style="background-image:${r.src?`url('${r.src}')`:r.thumb}"></div><span>${r.name}</span></button>`).join('');
+  document.querySelectorAll('#pse-tabs button').forEach(b=>b.onclick=()=>psSetTab(b.dataset.t));
+  psBindOverlay();
+  document.addEventListener('keydown',e=>{
+    if(!document.getElementById('cp-overlay-photostudio').classList.contains('open')) return;
+    if(e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type!=='range') return;
+    if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?psRedo():psUndo(); }
+    else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='y'){ e.preventDefault(); psRedo(); }
+    else if(e.key==='Escape'){ if(PS.quadEdit) psCancelQuad(); else closePhotoStudio(); }
+  });
+}
+
+function psSetTab(t){
+  PS.tab=t;
+  document.querySelectorAll('#pse-tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  document.querySelectorAll('.pse-pane').forEach(p=>p.classList.toggle('on',p.dataset.p===t));
+  if(t==='looks') psRenderLookThumbs();
+  psRender();
+}
+
+// ── state + history ──
+function psCommit(){
+  const s=JSON.stringify(PS.st);
+  if(JSON.stringify(PS.hist[PS.hist.length-1])!==s){ PS.hist.push(JSON.parse(s)); if(PS.hist.length>60) PS.hist.shift(); PS.fut=[]; }
+  psSyncUI();
+}
+function psUndo(){ if(PS.hist.length<2) return; PS.fut.push(PS.hist.pop()); PS.st=psClone(PS.hist[PS.hist.length-1]); psSyncUI(); psRender(); }
+function psRedo(){ if(!PS.fut.length) return; const s=PS.fut.pop(); PS.hist.push(s); PS.st=psClone(s); psSyncUI(); psRender(); }
+function psResetAll(){ PS.st=psNewState(); PS.quadEdit=null; psCommit(); document.getElementById('pse-crit').classList.remove('on'); psRender(); psNote('Back to the original photo'); }
+
+function psSetAdjKey(k,v,commit){
+  PS.st.adj[k]=parseFloat(v)||0; psSyncSlider(k); psRender(); if(commit) psCommit();
+}
+function psSyncSlider(k){
+  const el=document.getElementById('pse-a-'+k), lab=document.getElementById('pse-v-'+k), v=PS.st.adj[k];
+  if(el && parseFloat(el.value)!==v) el.value=v;
+  if(lab) lab.textContent = k==='exposure' ? (v>0?'+':'')+v.toFixed(2)+' EV' : (v>0?'+':'')+Math.round(v);
+}
+function psSyncUI(){
+  if(!PS.st) return;
+  Object.keys(PS_ADJ0).forEach(psSyncSlider);
+  document.querySelectorAll('.pse-look').forEach(b=>b.classList.toggle('on',+b.dataset.l===PS.st.look));
+  document.getElementById('pse-look-amt').value=PS.st.lookAmt;
+  document.getElementById('pse-ang').value=PS.st.angle; document.getElementById('pse-ang-v').textContent=(+PS.st.angle).toFixed(1)+'°';
+  document.querySelectorAll('#pse-aspects .pse-chip').forEach(b=>b.classList.toggle('on',PS_ASPECTS[+b.dataset.a][1]===PS.st.aspect));
+  const sc=PS.st.scene;
+  document.querySelectorAll('#pse-backdrops .pse-chip').forEach(b=>b.classList.toggle('on',sc.mode==='studio'&&b.dataset.b===sc.backdrop));
+  document.querySelectorAll('.pse-room').forEach(b=>b.classList.toggle('on',sc.mode==='room'&&+b.dataset.r===sc.room));
+  document.getElementById('pse-scale').value=sc.scale; document.getElementById('pse-scale-v').textContent=sc.scale+'%';
+  document.getElementById('pse-scale-wrap').style.display=sc.mode==='none'?'none':'';
+  document.getElementById('pse-undo').disabled=PS.hist.length<2;
+  document.getElementById('pse-redo').disabled=!PS.fut.length;
+  document.getElementById('pse-cmp').classList.toggle('on',PS.compare);
+  document.getElementById('pse-quad-actions').style.display=PS.quadEdit?'flex':'none';
+  document.getElementById('pse-quad-clear').style.display=(!PS.quadEdit&&PS.st.quad)?'block':'none';
+}
+
+// Base adjustments plus the selected look (scaled by its strength).
+function psEffAdj(st){
+  st=st||PS.st; const a={...st.adj}, d=PS_LOOKS[st.look]?.d||{}, k=st.lookAmt/100;
+  for(const key in d){ a[key]=psCl((a[key]||0)+d[key]*k, PS_RANGE[key][0], PS_RANGE[key][1]); }
+  return a;
+}
+function psNeutral(a){ for(const k in PS_ADJ0) if(a[k]) return false; return true; }
+
+// ── geometry ──
+function psSrcCanvas(maxDim){
+  if(PS.srcCache[maxDim]) return PS.srcCache[maxDim];
+  const img=PS.imgEl; let w=img.naturalWidth, h=img.naturalHeight; const k=Math.min(1,maxDim/Math.max(w,h));
+  w=Math.max(1,Math.round(w*k)); h=Math.max(1,Math.round(h*k));
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const x=c.getContext('2d'); x.imageSmoothingQuality='high'; x.drawImage(img,0,0,w,h);
+  return PS.srcCache[maxDim]=c;
+}
+// Projective map of the unit square onto quad [tl,tr,br,bl] (pixel coords).
+function psSquareToQuad(q){
+  const [x0,y0]=q[0],[x1,y1]=q[1],[x2,y2]=q[2],[x3,y3]=q[3];
+  const dx1=x1-x2, dx2=x3-x2, dx3=x0-x1+x2-x3, dy1=y1-y2, dy2=y3-y2, dy3=y0-y1+y2-y3;
+  let a,b,c,d,e,f,g,h;
+  if(Math.abs(dx3)<1e-9 && Math.abs(dy3)<1e-9){ a=x1-x0; b=x2-x1; c=x0; d=y1-y0; e=y2-y1; f=y0; g=0; h=0; }
+  else{ const den=dx1*dy2-dx2*dy1; g=(dx3*dy2-dx2*dy3)/den; h=(dx1*dy3-dx3*dy1)/den;
+        a=x1-x0+g*x1; b=x3-x0+h*x3; c=x0; d=y1-y0+g*y1; e=y3-y0+h*y3; f=y0; }
+  return (u,v)=>{ const z=g*u+h*v+1; return [(a*u+b*v+c)/z,(d*u+e*v+f)/z]; };
+}
+function psWarp(src, quadN, maxDim){
+  const sw=src.width, sh=src.height, q=quadN.map(([x,y])=>[x*sw,y*sh]);
+  const dist=(p,r)=>Math.hypot(p[0]-r[0],p[1]-r[1]);
+  let W=(dist(q[0],q[1])+dist(q[3],q[2]))/2, H=(dist(q[0],q[3])+dist(q[1],q[2]))/2;
+  const k=Math.min(1,maxDim/Math.max(W,H)); W=Math.max(2,Math.round(W*k)); H=Math.max(2,Math.round(H*k));
+  let sd; try{ sd=src.getContext('2d').getImageData(0,0,sw,sh).data; }catch(e){ PS.tainted=true; return src; }
+  const out=document.createElement('canvas'); out.width=W; out.height=H;
+  const ox=out.getContext('2d'), od=ox.createImageData(W,H), o=od.data, map=psSquareToQuad(q);
+  for(let y=0;y<H;y++){ const v=(y+.5)/H; for(let x=0;x<W;x++){
+    let [sx,sy]=map((x+.5)/W,v); sx-=.5; sy-=.5;
+    const x0=Math.floor(sx), y0=Math.floor(sy), fx=sx-x0, fy=sy-y0;
+    const xa=psCl(x0,0,sw-1), xb=psCl(x0+1,0,sw-1), ya=psCl(y0,0,sh-1), yb=psCl(y0+1,0,sh-1);
+    const i00=(ya*sw+xa)*4, i10=(ya*sw+xb)*4, i01=(yb*sw+xa)*4, i11=(yb*sw+xb)*4, oi=(y*W+x)*4;
+    for(let c=0;c<3;c++){ const t=sd[i00+c]+(sd[i10+c]-sd[i00+c])*fx, b=sd[i01+c]+(sd[i11+c]-sd[i01+c])*fx; o[oi+c]=t+(b-t)*fy; }
+    o[oi+3]=255;
+  }}
+  ox.putImageData(od,0,0); return out;
+}
+function psRotFlip(src, rot, flip){
+  rot=((rot%4)+4)%4; const sw=src.width, sh=src.height, odd=rot%2===1;
+  const c=document.createElement('canvas'); c.width=odd?sh:sw; c.height=odd?sw:sh;
+  const x=c.getContext('2d'); x.translate(c.width/2,c.height/2); x.rotate(rot*Math.PI/2); if(flip) x.scale(-1,1);
+  x.drawImage(src,-sw/2,-sh/2); return c;
+}
+function psStraighten(src, deg){
+  const t=Math.abs(deg)*Math.PI/180, w=src.width, h=src.height;
+  const s=Math.max((w*Math.cos(t)+h*Math.sin(t))/w,(w*Math.sin(t)+h*Math.cos(t))/h);
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const x=c.getContext('2d'); x.imageSmoothingQuality='high'; x.translate(w/2,h/2); x.rotate(deg*Math.PI/180); x.scale(s,s); x.drawImage(src,-w/2,-h/2); return c;
+}
+function psCropC(src, r){
+  const x=Math.round(r.x*src.width), y=Math.round(r.y*src.height), w=Math.max(2,Math.round(r.w*src.width)), h=Math.max(2,Math.round(r.h*src.height));
+  const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(src,x,y,w,h,0,0,w,h); return c;
+}
+function psGeo(maxDim, noCrop, st){
+  st=st||PS.st;
+  const key=maxDim+'|'+JSON.stringify([st.quad,st.rot,st.flip,st.angle,noCrop?null:st.crop]);
+  if(maxDim===PS_PREV && PS.geoCache[key]) return PS.geoCache[key];
+  let c=psSrcCanvas(maxDim);
+  if(st.quad) c=psWarp(c,st.quad,maxDim);
+  if(st.rot||st.flip) c=psRotFlip(c,st.rot,st.flip);
+  if(+st.angle) c=psStraighten(c,+st.angle);
+  if(st.crop && !noCrop) c=psCropC(c,st.crop);
+  if(maxDim===PS_PREV){ const ks=Object.keys(PS.geoCache); if(ks.length>8) delete PS.geoCache[ks[0]]; PS.geoCache[key]=c; }
+  return c;
+}
+
+// ── tone ──
 function psSharpen(src, amount){
   const w=src.width, h=src.height, s=src.data, out=new Uint8ClampedArray(s);
   const a=amount*0.8, k=[0,-a,0,-a,1+4*a,-a,0,-a,0];
@@ -3547,67 +3740,328 @@ function psSharpen(src, amount){
   }}
   return new ImageData(out, w, h);
 }
-// Core pipeline: brightness/contrast/saturate via GPU filter, then warmth,
-// vignette & sharpen per-pixel. Draws into `canvas`.
-function psRenderTo(canvas, adj, maxW){
-  const img = PS.imgEl; if(!img) return true;
-  let w = img.naturalWidth||img.width, h = img.naturalHeight||img.height;
-  if(maxW && w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
-  canvas.width=w; canvas.height=h;
-  const ctx=canvas.getContext('2d');
-  ctx.filter = `brightness(${adj.brightness}) contrast(${adj.contrast}) saturate(${adj.saturate})`;
-  ctx.drawImage(img, 0, 0, w, h);
-  ctx.filter = 'none';
-  if(adj.warmth!==0 || adj.vignette>0 || adj.sharpen>0){
-    let id;
-    try { id = ctx.getImageData(0,0,w,h); }
-    catch(e){ return false; } // tainted (cross-origin) — filter-only preview
-    if(adj.sharpen>0) id = psSharpen(id, adj.sharpen);
-    const d=id.data, warmth=adj.warmth, vig=adj.vignette;
-    for(let y=0;y<h;y++){ for(let x=0;x<w;x++){
-      const i=(y*w+x)*4;
-      if(warmth){ d[i]=psClamp(d[i]+warmth*0.9); d[i+2]=psClamp(d[i+2]-warmth*0.9); }
-      if(vig){ const dx=(x/w-0.5)*2, dy=(y/h-0.5)*2; let dist=Math.sqrt(dx*dx+dy*dy)/1.4142; let f=1-vig*Math.max(0,(dist-0.5))/0.5; if(f<0)f=0; d[i]*=f; d[i+1]*=f; d[i+2]*=f; }
-    }}
-    ctx.putImageData(id, 0, 0);
+function psBlurData(src, div){
+  const w=src.width, h=src.height;
+  const a=document.createElement('canvas'); a.width=Math.max(1,w/4|0); a.height=Math.max(1,h/4|0);
+  const b=document.createElement('canvas'); b.width=Math.max(1,w/div|0); b.height=Math.max(1,h/div|0);
+  const big=document.createElement('canvas'); big.width=w; big.height=h;
+  [a,b,big].forEach(c=>{ const x=c.getContext('2d'); x.imageSmoothingEnabled=true; x.imageSmoothingQuality='high'; });
+  a.getContext('2d').drawImage(src,0,0,a.width,a.height); b.getContext('2d').drawImage(a,0,0,b.width,b.height); big.getContext('2d').drawImage(b,0,0,w,h);
+  return big.getContext('2d').getImageData(0,0,w,h).data;
+}
+function psTone(src, A){
+  const w=src.width, h=src.height, out=document.createElement('canvas'); out.width=w; out.height=h;
+  const ctx=out.getContext('2d'); ctx.drawImage(src,0,0);
+  if(psNeutral(A)) return out;
+  let id; try{ id=ctx.getImageData(0,0,w,h); }catch(e){ PS.tainted=true; return out; }
+  const d=id.data, bl=A.clarity?psBlurData(src,24):null;
+  const ev=Math.pow(2,A.exposure), bp=-A.blacks/100*.12, wp=1-A.whites/100*.12, inv=1/(wp-bp);
+  const con=1+A.contrast/100*.8, sh=A.shadows/100*.42, hi=A.highlights/100*.42, sat=1+A.saturation/100, vib=A.vibrance/100;
+  const wa=A.warmth/100*.10, ti=A.tint/100*.08, cl=A.clarity/100*1.1, vg=A.vignette/100, gr=A.grain/100*.11;
+  const cx=w/2, cy=h/2, mr=Math.hypot(cx,cy);
+  for(let y=0,i=0;y<h;y++){ for(let x=0;x<w;x++,i+=4){
+    let r=d[i]/255*ev, g=d[i+1]/255*ev, b=d[i+2]/255*ev;
+    r=(r-bp)*inv; g=(g-bp)*inv; b=(b-bp)*inv;
+    let L=.2126*r+.7152*g+.0722*b;
+    if(bl){ const B=(.2126*bl[i]+.7152*bl[i+1]+.0722*bl[i+2])/255*ev, Lc=L<0?0:L>1?1:L, dl=cl*(L-(B-bp)*inv)*4*Lc*(1-Lc); r+=dl; g+=dl; b+=dl; L+=dl; }
+    if(sh||hi){ const Lc=L<0?0:L>1?1:L, s=1-Lc, dl=sh*s*s*(1-s*.35)+hi*Lc*Lc; r+=dl; g+=dl; b+=dl; }
+    r=(r-.5)*con+.5; g=(g-.5)*con+.5; b=(b-.5)*con+.5;
+    if(wa||ti){ r+=wa; b-=wa; g-=ti; r+=ti*.3; b+=ti*.3; }
+    if(sat!==1||vib){ const Ls=.2126*r+.7152*g+.0722*b, mx=Math.max(r,g,b), mn=Math.min(r,g,b); let f=sat; if(vib) f*=1+vib*(1-Math.min(1,(mx-mn)*1.6)); r=Ls+(r-Ls)*f; g=Ls+(g-Ls)*f; b=Ls+(b-Ls)*f; }
+    if(vg){ const t=Math.max(0,(Math.hypot(x-cx,y-cy)/mr-.38)/.62), f=1-vg*.85*t*t; r*=f; g*=f; b*=f; }
+    if(gr){ const n=(Math.random()-.5)*gr; r+=n; g+=n; b+=n; }
+    d[i]=r*255; d[i+1]=g*255; d[i+2]=b*255;
+  }}
+  if(A.sharpen) id=psSharpen(id, A.sharpen/100);
+  ctx.putImageData(id,0,0); return out;
+}
+
+// ── scenes ──
+function psShadowDraw(ctx, art, x, y, w, h, strength){
+  ctx.save(); ctx.shadowColor=`rgba(0,0,0,${strength})`; ctx.shadowBlur=Math.max(w,h)*.06; ctx.shadowOffsetY=Math.max(w,h)*.025;
+  ctx.fillStyle='#000'; ctx.fillRect(x,y,w,h); ctx.restore();
+  ctx.imageSmoothingQuality='high'; ctx.drawImage(art,x,y,w,h);
+  ctx.strokeStyle='rgba(0,0,0,.18)'; ctx.lineWidth=Math.max(1,w/900); ctx.strokeRect(x+.5,y+.5,w-1,h-1);
+}
+function psFit(aw,ah,bw,bh){ const k=Math.min(bw/aw,bh/ah); return [aw*k,ah*k]; }
+function psCompose(art, scene, outMax){
+  const sc=scene.scale/100;
+  if(scene.mode==='studio'){
+    const bd=PS_BACKDROPS.find(b=>b[0]===scene.backdrop)||PS_BACKDROPS[0], S=Math.min(outMax,2400), noir=bd[0]==='noir';
+    const c=document.createElement('canvas'); c.width=S; c.height=Math.round(S*1.25); const x=c.getContext('2d'), H=c.height;
+    x.fillStyle=bd[2]; x.fillRect(0,0,S,H);
+    const g=x.createRadialGradient(S/2,H*.42,S*.05,S/2,H*.42,S*.9);
+    g.addColorStop(0,noir?'rgba(255,236,200,.22)':'rgba(255,255,255,.55)'); g.addColorStop(1,noir?'rgba(0,0,0,.55)':'rgba(0,0,0,.10)');
+    x.fillStyle=g; x.fillRect(0,0,S,H);
+    const fl=x.createLinearGradient(0,H*.84,0,H); fl.addColorStop(0,'rgba(0,0,0,0)'); fl.addColorStop(1,noir?'rgba(0,0,0,.5)':'rgba(0,0,0,.08)');
+    x.fillStyle=fl; x.fillRect(0,H*.84,S,H*.16);
+    const [w,h]=psFit(art.width,art.height,S*.72*sc,H*.66*sc);
+    psShadowDraw(x,art,(S-w)/2,H*.44-h/2,w,h,noir?.7:.32); return c;
   }
-  return true;
+  if(scene.mode==='room'){
+    const R=PS_ROOMS[scene.room]||PS_ROOMS[0];
+    if(R.draw) return psDrawnRoom(art,R.draw,outMax,sc);
+    const img=PS.roomImg[R.src];
+    if(!img){ psLoadRoom(R.src); return art; }
+    const k=Math.min(1,Math.min(outMax,2400)/Math.max(img.naturalWidth,img.naturalHeight)), W=Math.round(img.naturalWidth*k), H=Math.round(img.naturalHeight*k);
+    const c=document.createElement('canvas'); c.width=W; c.height=H; const x=c.getContext('2d'); x.drawImage(img,0,0,W,H);
+    const [rx,ry,rw,rh]=R.rect, px=rx*W, py=ry*H, pw=rw*W, ph=rh*H, pad=W*.014;
+    // Paint the wall over the existing artwork, sampled from both sides.
+    const sample=(sx)=>{ try{ const dd=x.getImageData(Math.round(psCl(sx,0,W-4)),Math.round(py),3,Math.max(1,Math.round(ph))).data; let r=0,g=0,b=0,n=0; for(let i=0;i<dd.length;i+=4){ r+=dd[i]; g+=dd[i+1]; b+=dd[i+2]; n++; } return `rgb(${r/n|0},${g/n|0},${b/n|0})`; }catch(e){ return '#e8e4dc'; } };
+    const lg=x.createLinearGradient(px-pad,0,px+pw+pad,0); lg.addColorStop(0,sample(px-pad*2.2)); lg.addColorStop(1,sample(px+pw+pad*2.2));
+    x.fillStyle=lg; x.fillRect(px-pad,py-pad,pw+pad*2,ph+pad*2);
+    const [w,h]=psFit(art.width,art.height,pw*sc,ph*sc);
+    psShadowDraw(x,art,px+(pw-w)/2,py+(ph-h)/2,w,h,.38); return c;
+  }
+  return art;
 }
-function psRender(){ psRenderTo(document.getElementById('ps-canvas'), psGetAdj(), 760); }
-function psExport(){ const c=document.createElement('canvas'); psRenderTo(c, psGetAdj(), 1400); return c.toDataURL('image/jpeg', 0.85); }
-
-function openPhotoStudio(which){
-  const src = which==='pm' ? (pieces.find(p=>p.id===currentPieceId)||{}).image : imgData;
-  if(!src){ showToast('Upload or open a photo first.','t-error'); return; }
-  PS.which=which; PS.src=src;
-  const img=new Image(); img.crossOrigin='anonymous';
-  img.onload=()=>{ PS.imgEl=img; renderPsPresets(); psReset(); document.getElementById('cp-overlay-photostudio').classList.add('open'); };
-  img.onerror=()=>showToast('Could not load this image. Re-upload it and try again.','t-error');
-  img.src=src;
+function psDrawnRoom(art, kind, outMax, sc){
+  const W=Math.min(outMax,2400), H=Math.round(W*.75), c=document.createElement('canvas'); c.width=W; c.height=H; const x=c.getContext('2d');
+  const noir=kind==='noir', fy=H*.76;
+  let g=x.createLinearGradient(0,0,0,fy); g.addColorStop(0,noir?'#0e0b0f':'#e9e6e0'); g.addColorStop(1,noir?'#1d181e':'#f4f2ee');
+  x.fillStyle=g; x.fillRect(0,0,W,fy);
+  g=x.createRadialGradient(W/2,H*.05,W*.02,W/2,H*.35,W*.5); g.addColorStop(0,noir?'rgba(255,230,180,.35)':'rgba(255,250,235,.7)'); g.addColorStop(1,'rgba(0,0,0,0)');
+  x.fillStyle=g; x.fillRect(0,0,W,fy);
+  x.fillStyle=noir?'#0b090c':'#fbfaf8'; x.fillRect(0,fy-H*.025,W,H*.025);
+  if(noir){ x.fillStyle='rgba(214,176,106,.6)'; x.fillRect(0,fy-H*.026,W,Math.max(1,H*.002)); }
+  g=x.createLinearGradient(0,fy,0,H); g.addColorStop(0,noir?'#1a1519':'#c9b497'); g.addColorStop(1,noir?'#050405':'#9e8566'); x.fillStyle=g; x.fillRect(0,fy,W,H-fy);
+  x.strokeStyle=noir?'rgba(255,255,255,.03)':'rgba(80,55,30,.12)'; x.lineWidth=Math.max(1,W/1200);
+  for(let i=1;i<9;i++){ const yy=fy+(H-fy)*Math.pow(i/9,1.6); x.beginPath(); x.moveTo(0,yy); x.lineTo(W,yy); x.stroke(); }
+  // bench
+  x.fillStyle=noir?'#2a2026':'#3b3029'; const bw=W*.3, bx=(W-bw)/2, by=H*.86; x.fillRect(bx,by,bw,H*.025);
+  x.fillRect(bx+bw*.06,by,W*.008,H*.08); x.fillRect(bx+bw*.94-W*.008,by,W*.008,H*.08);
+  const [w,h]=psFit(art.width,art.height,W*.42*sc,fy*.62*sc);
+  psShadowDraw(x,art,(W-w)/2,fy*.47-h/2,w,h,noir?.75:.3); return c;
 }
-function closePhotoStudio(){ document.getElementById('cp-overlay-photostudio').classList.remove('open'); }
+function psLoadRoom(src){
+  if(PS.roomImg[src]!==undefined) return; PS.roomImg[src]=null;
+  const i=new Image(); i.crossOrigin='anonymous';
+  i.onload=()=>{ PS.roomImg[src]=i; psRender(); };
+  i.onerror=()=>{ delete PS.roomImg[src]; psNote('Could not load that room photo — check your connection.'); };
+  i.src=src;
+}
 
-function psAutoEnhance(){
-  if(!PS.imgEl) return;
-  // Estimate exposure from a small sample and pick a pleasing correction.
-  let mean=128;
+// ── preview rendering ──
+function psRender(){ if(PS.raf) return; PS.raf=requestAnimationFrame(()=>{ PS.raf=0; psDraw(); }); }
+function psDraw(){
+  if(!PS.imgEl || !PS.st) return;
+  const cv=document.getElementById('ps-canvas'), ctx=cv.getContext('2d');
+  let mode = PS.quadEdit ? 'quad' : PS.tab==='crop' ? 'crop' : 'final', base, shown;
+  if(mode==='quad'){ shown=psSrcCanvas(PS_PREV); }
+  else if(mode==='crop'){ base=psGeo(PS_PREV,true); shown=psTone(base,psEffAdj()); }
+  else{
+    base=psGeo(PS_PREV); shown=psTone(base,psEffAdj());
+    if(PS.st.scene.mode!=='none') shown=psCompose(shown,PS.st.scene,PS_PREV);
+  }
+  if(cv.width!==shown.width||cv.height!==shown.height){ cv.width=shown.width; cv.height=shown.height; }
+  ctx.drawImage(shown,0,0);
+  const canCompare = PS.compare && mode==='final' && PS.st.scene.mode==='none';
+  if(canCompare){ const sx=Math.round(cv.width*PS.split); ctx.drawImage(base,0,0,sx,cv.height,0,0,sx,cv.height); }
+  const sp=document.getElementById('pse-split'); sp.style.display=canCompare?'':'none'; sp.style.left=(PS.split*100)+'%';
+  psDrawOverlay(mode);
+  document.getElementById('pse-info').textContent = mode==='quad' ? 'Drag the gold corners onto the artwork’s corners' : `${shown.width} × ${shown.height} preview`;
+  if(PS.tainted) psNote('This photo is hosted somewhere that blocks editing — re-upload it to unlock all tools.');
+}
+
+// ── overlay: corner handles (straighten) and crop box ──
+function psDrawOverlay(mode){
+  const svg=document.getElementById('pse-ov'), cv=document.getElementById('ps-canvas'), W=cv.width, H=cv.height;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('preserveAspectRatio','none');
+  const disp=cv.getBoundingClientRect().width||W, u=W/disp, r=11*u;
+  if(mode==='quad'){
+    const q=PS.quadEdit.map(([x,y])=>[x*W,y*H]), pts=q.map(p=>p.join(',')).join(' ');
+    svg.innerHTML=`<path d="M0 0H${W}V${H}H0Z M${q.map(p=>p.join(' ')).join(' L')}Z" fill="rgba(0,0,0,.45)" fill-rule="evenodd"/>
+      <polygon points="${pts}" fill="none" stroke="#f2d9a2" stroke-width="${2*u}"/>
+      ${q.map((p,i)=>`<circle class="h" data-q="${i}" cx="${p[0]}" cy="${p[1]}" r="${r}" stroke-width="${2*u}"/>`).join('')}`;
+  } else if(mode==='crop'){
+    const c=PS.st.crop||{x:0,y:0,w:1,h:1}, x=c.x*W, y=c.y*H, w=c.w*W, h=c.h*H;
+    const line=(x1,y1,x2,y2)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(255,255,255,.45)" stroke-width="${u}"/>`;
+    svg.innerHTML=`<path d="M0 0H${W}V${H}H0Z M${x} ${y}H${x+w}V${y+h}H${x}Z" fill="rgba(0,0,0,.55)" fill-rule="evenodd"/>
+      ${line(x+w/3,y,x+w/3,y+h)}${line(x+2*w/3,y,x+2*w/3,y+h)}${line(x,y+h/3,x+w,y+h/3)}${line(x,y+2*h/3,x+w,y+2*h/3)}
+      <rect class="mv" data-c="move" x="${x}" y="${y}" width="${w}" height="${h}" stroke="#f2d9a2" stroke-width="${2*u}" fill="transparent"/>
+      ${[[x,y],[x+w,y],[x+w,y+h],[x,y+h]].map((p,i)=>`<circle class="h" data-c="${i}" cx="${p[0]}" cy="${p[1]}" r="${r}" stroke-width="${2*u}"/>`).join('')}`;
+  } else svg.innerHTML='';
+}
+function psEvtXY(e){ const cv=document.getElementById('ps-canvas'), r=cv.getBoundingClientRect(); return [psCl((e.clientX-r.left)/r.width,0,1), psCl((e.clientY-r.top)/r.height,0,1)]; }
+function psBindOverlay(){
+  const svg=document.getElementById('pse-ov'); let drag=null;
+  svg.addEventListener('pointerdown',e=>{
+    const t=e.target; if(!t.dataset) return;
+    if(t.dataset.q!=null) drag={ kind:'q', i:+t.dataset.q };
+    else if(t.dataset.c!=null){ const [px,py]=psEvtXY(e); drag={ kind:'c', h:t.dataset.c, start:[px,py], crop:{...(PS.st.crop||{x:0,y:0,w:1,h:1})} }; }
+    if(drag){ e.preventDefault(); svg.setPointerCapture(e.pointerId); }
+  });
+  svg.addEventListener('pointermove',e=>{
+    if(!drag) return; const [px,py]=psEvtXY(e);
+    if(drag.kind==='q'){ PS.quadEdit[drag.i]=[px,py]; psDrawOverlay('quad'); return; }
+    const c0=drag.crop, cv=document.getElementById('ps-canvas'), A=psAspectNorm(cv.width/cv.height);
+    let c;
+    if(drag.h==='move'){ c={...c0, x:psCl(c0.x+px-drag.start[0],0,1-c0.w), y:psCl(c0.y+py-drag.start[1],0,1-c0.h)}; }
+    else{
+      const i=+drag.h, ax=(i===0||i===3)?c0.x+c0.w:c0.x, ay=(i<2)?c0.y+c0.h:c0.y;   // opposite (anchor) corner
+      let w=Math.max(.05,Math.abs(px-ax)), h=Math.max(.05,Math.abs(py-ay));
+      if(A){ if(w/h>A) w=h*A; else h=w/A; }
+      const nx=(i===0||i===3)?ax-w:ax, ny=(i<2)?ay-h:ay;
+      c={ x:psCl(nx,0,1), y:psCl(ny,0,1), w:0, h:0 }; c.w=Math.min(w,(i===0||i===3)?ax-c.x:1-c.x); c.h=Math.min(h,(i<2)?ay-c.y:1-c.y);
+      if(A){ if(c.w/c.h>A) c.w=c.h*A; else c.h=c.w/A; if(i===0||i===3) c.x=ax-c.w; if(i<2) c.y=ay-c.h; }
+    }
+    PS.st.crop=c; psDrawOverlay('crop');
+  });
+  const end=()=>{ if(!drag) return; const k=drag.kind; drag=null; if(k==='c'){ psCommit(); psRender(); } };
+  svg.addEventListener('pointerup',end); svg.addEventListener('pointercancel',end);
+  // before/after split handle
+  const sp=document.getElementById('pse-split'); let sdrag=false;
+  sp.addEventListener('pointerdown',e=>{ sdrag=true; sp.setPointerCapture(e.pointerId); e.preventDefault(); });
+  sp.addEventListener('pointermove',e=>{ if(!sdrag) return; PS.split=psCl(psEvtXY(e)[0],.02,.98); psRender(); });
+  sp.addEventListener('pointerup',()=>{ sdrag=false; });
+}
+// Aspect ratio expressed in normalized crop units (w/h of the crop box).
+function psAspectNorm(canvasRatio){ const a=PS.st.aspect; if(!a) return null; if(a<0) return 1; return a/canvasRatio; }
+function psToggleCompare(){ PS.compare=!PS.compare; if(PS.compare && PS.st.scene.mode!=='none') psNote('Compare works on the photo — choose “No scene” to see it.'); psSyncUI(); psRender(); }
+
+// ── crop / rotate ──
+function psSetAspect(i){
+  const a=PS_ASPECTS[i][1]; PS.st.aspect=a;
+  if(a===-1){ PS.st.crop=null; }
+  else if(a>0){ const g=psGeo(PS_PREV,true), R=g.width/g.height; let w=1,h=1; if(R>a) w=a/R; else h=R/a; PS.st.crop={ x:(1-w)/2, y:(1-h)/2, w, h }; }
+  else if(!PS.st.crop){ PS.st.crop={ x:.05, y:.05, w:.9, h:.9 }; }
+  psCommit(); psRender();
+}
+function psClearCrop(){ PS.st.crop=null; PS.st.aspect=-1; psCommit(); psRender(); }
+function psSetAngle(v){ PS.st.angle=+v; document.getElementById('pse-ang-v').textContent=(+v).toFixed(1)+'°'; psRender(); }
+function psRotate(d){ PS.st.rot=(PS.st.rot+d+4)%4; PS.st.crop=null; PS.st.aspect=-1; psCommit(); psRender(); }
+function psFlip(){ PS.st.flip=!PS.st.flip; PS.st.crop=null; psCommit(); psRender(); }
+
+// ── looks ──
+function psRenderLookThumbs(){
+  const el=document.getElementById('pse-looks');
+  if(!el.children.length) el.innerHTML=PS_LOOKS.map((l,i)=>`<button class="pse-look" data-l="${i}" onclick="psSetLook(${i})"><canvas width="120" height="120"></canvas>${l.name}</button>`).join('');
+  const g=psGeo(PS_PREV), k=150/Math.max(g.width,g.height), small=document.createElement('canvas');
+  small.width=Math.max(1,Math.round(g.width*k)); small.height=Math.max(1,Math.round(g.height*k)); small.getContext('2d').drawImage(g,0,0,small.width,small.height);
+  el.querySelectorAll('.pse-look').forEach(b=>{
+    const i=+b.dataset.l, t=psTone(small,psEffAdj({...PS.st,look:i,lookAmt:100})), c=b.querySelector('canvas'), x=c.getContext('2d'), s=Math.min(t.width,t.height);
+    x.drawImage(t,(t.width-s)/2,(t.height-s)/2,s,s,0,0,120,120);
+  });
+  psSyncUI();
+}
+function psSetLook(i){ PS.st.look=i; if(!PS.st.lookAmt) PS.st.lookAmt=100; psCommit(); psRender(); }
+function psLookAmount(v){ PS.st.lookAmt=+v; psRender(); }
+
+// ── scenes ──
+function psSetScene(mode, opt){
+  const sc=PS.st.scene; sc.mode=mode;
+  if(mode==='studio' && opt) sc.backdrop=opt;
+  if(mode==='room'){ sc.room=+opt||0; const R=PS_ROOMS[sc.room]; if(R.src) psLoadRoom(R.src); }
+  if(mode!=='none' && !PS.st.quad && !PS.st.crop) psNote('Tip: straighten or crop to just the artwork first for the cleanest result.');
+  psCommit(); psRender();
+}
+function psSetSceneScale(v){ PS.st.scene.scale=+v; document.getElementById('pse-scale-v').textContent=v+'%'; psRender(); }
+
+// ── straighten (quad) ──
+function psStartQuad(q){
+  if(PS.st.quad && !q){ q=PS.st.quad; }
+  PS.quadEdit=psClone(q||[[.12,.1],[.88,.1],[.88,.9],[.12,.9]]);
+  if(PS.tab!=='ai') psSetTab('ai');
+  psSyncUI(); psRender();
+}
+function psApplyQuad(){ PS.st.quad=PS.quadEdit; PS.quadEdit=null; PS.st.crop=null; PS.st.aspect=-1; psCommit(); psRender(); psNote('✓ Straightened — the piece now fills the frame'); }
+function psCancelQuad(){ PS.quadEdit=null; psSyncUI(); psRender(); }
+function psClearQuad(){ PS.st.quad=null; psCommit(); psRender(); }
+
+// ── helpers for AI ──
+function psBusy(on,msg){ document.getElementById('pse-busy').classList.toggle('on',!!on); if(msg) document.getElementById('pse-busy-msg').textContent=msg; }
+let psNoteT=null;
+function psNote(m){ const n=document.getElementById('pse-note'); n.textContent=m; n.classList.add('on'); clearTimeout(psNoteT); psNoteT=setTimeout(()=>n.classList.remove('on'),4200); }
+function psAIReady(){
+  if(keys['anthropic-key'] || keys['iebc-api-key']) return true;
+  showToast('Add your Anthropic key in Connections to use the AI tools. (Instant Auto-Fix works without it.)','t-amber'); return false;
+}
+function psJpegForAI(canvas){
+  const k=Math.min(1,1024/Math.max(canvas.width,canvas.height)), c=document.createElement('canvas');
+  c.width=Math.round(canvas.width*k); c.height=Math.round(canvas.height*k); c.getContext('2d').drawImage(canvas,0,0,c.width,c.height);
+  let url; try{ url=c.toDataURL('image/jpeg',.85); }catch(e){ return null; }
+  return { w:c.width, h:c.height, src:{ type:'base64', media_type:'image/jpeg', data:url.split(',')[1] } };
+}
+
+// AI Art Director — Claude looks at the photo and returns slider values.
+async function psAIDirector(){
+  if(!psAIReady()) return;
+  const pic=psJpegForAI(psGeo(PS_PREV)); if(!pic){ showToast('This photo is blocked from editing — re-upload it first.','t-error'); return; }
+  const ranges=PS_SLIDERS.map(s=>`"${s[1]}": ${s[3]}..${s[4]}`).join(', ');
+  const prompt=`You are a world-class fine-art product photographer and retoucher preparing this photo of an original handmade artwork (often epoxy resin, geodes, metallic gold/silver leaf, crystals, wood, preserved flowers) for a luxury gallery website.
+Study exposure, white balance, color accuracy, contrast, glare on glossy resin and sharpness. Choose edits that make the piece look its most beautiful while staying TRUE to its real colors (never shift the artwork's hues; keep whites neutral; protect specular highlights on resin and metallics).
+Respond with ONLY minified JSON, no prose or code fences:
+{"adjust":{${PS_SLIDERS.map(s=>`"${s[1]}":0`).join(',')}},"summary":"one sentence on what the photo needed","changes":["short bullet","..."],"tips":["one practical tip for shooting the next photo"]}
+Allowed ranges — ${ranges}. Exposure is in stops. Use 0 for anything that should not change. Keep vignette ≤ 20 and grain 0 unless clearly helpful.`;
+  psBusy(true,'The Art Director is studying your photo…');
   try{
-    const sw=80, sh=Math.max(1,Math.round(sw*(PS.imgEl.naturalHeight/PS.imgEl.naturalWidth||1)));
-    const c=document.createElement('canvas'); c.width=sw; c.height=sh;
-    const cx=c.getContext('2d'); cx.drawImage(PS.imgEl,0,0,sw,sh);
-    const d=cx.getImageData(0,0,sw,sh).data; let sum=0;
-    for(let i=0;i<d.length;i+=4) sum += 0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
-    mean = sum/(d.length/4);
-  }catch(e){}
-  const bright = mean<100 ? 1.2 : mean<140 ? 1.09 : mean>185 ? 0.95 : 1.03;
-  psSetAdj({ brightness:bright, contrast:1.14, saturate:1.18, warmth:6, sharpen:0.35, vignette:0.08 });
-  psRender();
-  showToast('✨ Auto-enhanced — tweak or apply','t-success');
+    const txt=await askClaude({ system:'You are an expert photo retoucher. Reply with only the requested JSON.', messages:[{ role:'user', content:[{ type:'image', source:pic.src },{ type:'text', text:prompt }] }], maxTokens:700 });
+    const o=parseJsonLoose(txt); if(!o||!o.adjust) throw new Error('Could not read the AI response — try again.');
+    const a={...PS_ADJ0}; for(const k in PS_ADJ0){ const v=parseFloat(o.adjust[k]); if(!isNaN(v)) a[k]=psCl(v,PS_RANGE[k][0],PS_RANGE[k][1]); }
+    PS.st.adj=a; PS.st.look=0; psCommit(); psRender();
+    const esc=s=>String(s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    const crit=document.getElementById('pse-crit');
+    crit.innerHTML=`<b>✨ ${esc(o.summary||'Enhanced.')}</b>${(o.changes||[]).length?`<ul>${o.changes.slice(0,5).map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}${(o.tips||[]).length?`<div style="margin-top:6px;color:var(--gd2)">📸 Next shoot: ${esc(o.tips[0])}</div>`:''}`;
+    crit.classList.add('on');
+    psNote('✨ AI enhancement applied — use Compare to see before/after');
+  }catch(e){ showToast('Art Director: '+(e.message||'something went wrong — try again.'),'t-error'); }
+  finally{ psBusy(false); }
 }
+
+// AI artwork detection — Claude returns the piece's corners in pixels.
+async function psAIFindArt(){
+  if(!psAIReady()) return;
+  const pic=psJpegForAI(psSrcCanvas(PS_PREV)); if(!pic){ showToast('This photo is blocked from editing — re-upload it first.','t-error'); return; }
+  const prompt=`This image is ${pic.w}×${pic.h} pixels and shows a photograph of an artwork (a panel, canvas, plaque, block or framed piece), possibly at an angle, leaning against a wall, or with props around it.
+Locate the artwork's OUTER boundary — include its frame if it has one, exclude props, walls, easels, labels and shadows. Give the four corners in pixel coordinates of THIS image, as precisely as you can. If the piece is round or arched, give the corners of its tight bounding quadrilateral (following the perspective).
+Respond with ONLY minified JSON: {"found":true,"tl":[x,y],"tr":[x,y],"br":[x,y],"bl":[x,y],"what":"few words describing the piece"} — or {"found":false} if there is no single artwork.`;
+  psBusy(true,'Finding the artwork…');
+  try{
+    const txt=await askClaude({ system:'You are a precise computer-vision assistant. Reply with only the requested JSON.', messages:[{ role:'user', content:[{ type:'image', source:pic.src },{ type:'text', text:prompt }] }], maxTokens:300 });
+    const o=parseJsonLoose(txt);
+    if(!o||o.found===false||!o.tl) { psNote('No single artwork found — place the corners yourself.'); psStartQuad(); return; }
+    const q=['tl','tr','br','bl'].map(k=>[psCl(+o[k][0]/pic.w,0,1), psCl(+o[k][1]/pic.h,0,1)]);
+    if(q.some(p=>p.some(isNaN))) throw new Error('Unexpected corner data — try again.');
+    psStartQuad(q);
+    psNote(`🎯 Found ${o.what?String(o.what).slice(0,60):'the artwork'} — drag corners to fine-tune, then Straighten`);
+  }catch(e){ showToast('Detect: '+(e.message||'something went wrong — try again.'),'t-error'); }
+  finally{ psBusy(false); }
+}
+
+// Instant auto-fix (local): levels from the histogram + gentle pop.
+function psAutoEnhance(){
+  const g=psGeo(PS_PREV), k=Math.min(1,240/Math.max(g.width,g.height)), c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(g.width*k)); c.height=Math.max(1,Math.round(g.height*k)); c.getContext('2d').drawImage(g,0,0,c.width,c.height);
+  let d; try{ d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; }catch(e){ showToast('This photo is blocked from editing — re-upload it first.','t-error'); return; }
+  const hist=new Array(256).fill(0); let n=0, rs=0, gs=0, bs=0;
+  for(let i=0;i<d.length;i+=4){ hist[Math.round(.2126*d[i]+.7152*d[i+1]+.0722*d[i+2])]++; rs+=d[i]; gs+=d[i+1]; bs+=d[i+2]; n++; }
+  const pct=p=>{ let acc=0; for(let v=0;v<256;v++){ acc+=hist[v]; if(acc>=n*p) return v; } return 255; };
+  const lo=pct(.005)/255, hi=pct(.995)/255, med=pct(.5)/255;
+  const blacks=psCl(-lo/.12*100,-60,30), whites=psCl((1-hi)/.12*100,-30,60);
+  const stretched=(med-lo)/Math.max(.05,hi-lo), exposure=psCl(Math.log2(.47/Math.max(.05,stretched)),-.8,.8);
+  const cast=((rs-bs)/n)/255, warmth=psCl(-cast*120,-25,25);   // neutralize gentle color casts
+  PS.st.adj={...PS_ADJ0, exposure:+exposure.toFixed(2), blacks:Math.round(blacks), whites:Math.round(whites), contrast:8, highlights:-12, shadows:10, vibrance:18, warmth:Math.round(warmth), clarity:12, sharpen:20};
+  psCommit(); psRender(); psNote('⚡ Auto-fixed — tweak in Adjust or try the AI Art Director');
+}
+
+// ── export ──
+function psExportCanvas(maxDim){
+  const st=PS.st; let c=psTone(psGeo(maxDim,false,st),psEffAdj(st));
+  if(st.scene.mode!=='none') c=psCompose(c,st.scene,maxDim);
+  return c;
+}
+function psExport(maxDim){
+  let c=psExportCanvas(maxDim||PS_SAVE);
+  const k=Math.min(1,(maxDim||PS_SAVE)/Math.max(c.width,c.height));
+  if(k<1){ const s=document.createElement('canvas'); s.width=Math.round(c.width*k); s.height=Math.round(c.height*k); s.getContext('2d').drawImage(c,0,0,s.width,s.height); c=s; }
+  return c.toDataURL('image/jpeg', .87);
+}
+function psStamp(){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; }
+function psSave(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
 
 function psApplyMain(){
   let url;
-  try{ url=psExport(); }catch(e){ url=null; }
+  try{ url=psExport(PS_SAVE); }catch(e){ url=null; }
   if(!url){ showToast('Could not export this photo (image blocked cross-origin). Re-upload it, then enhance.','t-error'); return; }
   if(PS.which==='pm'){
     const p=pieces.find(x=>x.id===currentPieceId);
@@ -3622,10 +4076,34 @@ function psApplyMain(){
   }
   closePhotoStudio();
 }
+function psAddVariation(){
+  let url; try{ url=psExport(PS_SAVE); }catch(e){ url=null; }
+  if(!url){ showToast('Could not export this photo — re-upload it first.','t-error'); return; }
+  const sc=PS.st.scene, label = sc.mode==='room' ? PS_ROOMS[sc.room].name : sc.mode==='studio' ? 'Studio — '+(PS_BACKDROPS.find(b=>b[0]===sc.backdrop)||[])[1] : (PS.st.look?PS_LOOKS[PS.st.look].name:'Enhanced');
+  varBuf(PS.which).push({ image:url, label }); renderVarStrip(PS.which);
+  showToast(`➕ Added “${label}” to Variations — remember to Save`,'t-success');
+}
+function psDownload(){
+  try{ psSave(psExport(PS_FULL),`cecespieces_photo_${psStamp()}.jpg`); }catch(e){ showToast('Could not export this photo — re-upload it first.','t-error'); }
+}
+function psSocialPack(){
+  let art; try{ art=psExportCanvas(PS_SAVE); art.getContext('2d').getImageData(0,0,1,1); }catch(e){ showToast('Could not export this photo — re-upload it first.','t-error'); return; }
+  const stamp=psStamp();
+  [['square',1080,1080],['portrait',1080,1350],['story',1080,1920]].forEach(([name,W,H],i)=>{
+    const c=document.createElement('canvas'); c.width=W; c.height=H; const x=c.getContext('2d');
+    const k=Math.max(W/art.width,H/art.height);
+    x.filter='blur(38px) brightness(.55) saturate(1.2)'; x.drawImage(art,(W-art.width*k)/2-40,(H-art.height*k)/2-40,art.width*k+80,art.height*k+80); x.filter='none';
+    x.fillStyle='rgba(10,8,12,.25)'; x.fillRect(0,0,W,H);
+    const [w,h]=psFit(art.width,art.height,W*.84,H*(name==='story'?.62:.8));
+    psShadowDraw(x,art,(W-w)/2,(H-h)/2,w,h,.55);
+    setTimeout(()=>psSave(c.toDataURL('image/jpeg',.9),`cecespieces_${name}_${stamp}.jpg`),i*400);
+  });
+  showToast('📱 Downloading square, portrait & story sizes','t-success');
+}
 
 function psGenerateVariations(){
   let base;
-  try{ base=psExport(); }catch(e){ base=null; }
+  try{ base=psExport(PS_SAVE); }catch(e){ base=null; }
   if(!base){ showToast('Could not read this photo (cross-origin). Re-upload it, then make variations.','t-error'); return; }
   const img=new Image();
   img.onload=()=>{
@@ -3643,6 +4121,7 @@ function psGenerateVariations(){
   };
   img.src=base;
 }
+addEventListener('resize',()=>{ if(document.getElementById('cp-overlay-photostudio')?.classList.contains('open')) psRender(); });
 
 // ── COLLECTION ──
 function artCardHTML(p) {
@@ -6740,47 +7219,212 @@ create policy "Public access" on class_enrollments for all using (true) with che
   </div>
 </div>
 
-<!-- PHOTO STUDIO — enhance a photo & make variations -->
+<!-- PHOTO STUDIO PRO — AI-assisted photo editor (rebuilt 2026-10-21_1900 UTC)
+     Full-screen, non-destructive editor: AI Art Director, AI artwork
+     detection + perspective straighten, pro tone controls, crop/rotate,
+     looks, studio backdrops, room mockups and a social export pack.
+     All pixel work runs in the browser (canvas); only the AI buttons send
+     a downscaled copy of the photo to Claude using the hub's Anthropic key. -->
 <div class="cp-overlay" id="cp-overlay-photostudio">
-  <div class="cp-modal" style="max-width:760px">
-    <button class="cp-modal-close" onclick="closePhotoStudio()">✕</button>
-    <div class="cp-modal-title">✨ Photo Studio</div>
-    <div class="cp-modal-sub">Brighten and polish your photo, pick a look, then apply it as the main image — or spin off color variations.</div>
-
-    <div style="text-align:center;background:#111;border-radius:12px;padding:10px;margin-bottom:12px">
-      <canvas id="ps-canvas" style="max-width:100%;max-height:46vh;border-radius:8px;display:inline-block"></canvas>
+  <div class="pse" role="dialog" aria-label="Photo Studio Pro">
+    <div class="pse-top">
+      <div class="pse-brand">✨ Photo Studio <em>Pro</em></div>
+      <div class="pse-tbar">
+        <button class="pse-ib" id="pse-undo" onclick="psUndo()" title="Undo (Ctrl+Z)">↶</button>
+        <button class="pse-ib" id="pse-redo" onclick="psRedo()" title="Redo (Ctrl+Shift+Z)">↷</button>
+        <button class="pse-ib" id="pse-cmp" onclick="psToggleCompare()" title="Before / after">◐ Compare</button>
+        <button class="pse-ib" onclick="psResetAll()" title="Start over">↺ Reset</button>
+        <button class="pse-ib pse-x" onclick="closePhotoStudio()" title="Close">✕</button>
+      </div>
     </div>
+    <div class="pse-body">
+      <div class="pse-stage" id="pse-stage">
+        <div class="pse-canvas-wrap" id="pse-wrap">
+          <canvas id="ps-canvas"></canvas>
+          <svg id="pse-ov" class="pse-ov"></svg>
+          <div class="pse-split" id="pse-split" style="display:none"><span>Before</span><i></i><span>After</span></div>
+        </div>
+        <div class="pse-busy" id="pse-busy"><div class="pse-spin"></div><div id="pse-busy-msg">Working…</div></div>
+        <div class="pse-note" id="pse-note"></div>
+        <div class="pse-info" id="pse-info"></div>
+      </div>
+      <div class="pse-panel">
+        <div class="pse-tabs" id="pse-tabs">
+          <button data-t="ai" class="on">✨ AI</button>
+          <button data-t="adjust">Adjust</button>
+          <button data-t="looks">Looks</button>
+          <button data-t="crop">Crop</button>
+          <button data-t="scene">Scene</button>
+          <button data-t="export">Export</button>
+        </div>
 
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <button class="btn btn-amber btn-sm" onclick="psAutoEnhance()">✨ Auto-Enhance</button>
-      <button class="btn btn-ghost btn-sm" onclick="psReset()">↺ Reset</button>
-      <span style="flex:1"></span>
-      <span style="font-size:.64rem;color:var(--muted);align-self:center">Looks:</span>
-      <div id="ps-presets" style="display:flex;gap:5px;flex-wrap:wrap"></div>
-    </div>
+        <div class="pse-pane on" data-p="ai">
+          <div class="pse-card pse-hero">
+            <div class="pse-h">AI Art Director</div>
+            <p>Claude studies your photo like a gallery photographer and dials in exposure, color and clarity — then tells you what it changed and why.</p>
+            <button class="pse-btn gold" onclick="psAIDirector()">✨ Enhance with AI</button>
+            <button class="pse-btn" onclick="psAutoEnhance()">⚡ Instant Auto-Fix (no AI)</button>
+            <div class="pse-crit" id="pse-crit"></div>
+          </div>
+          <div class="pse-card">
+            <div class="pse-h">Find &amp; Straighten Artwork</div>
+            <p>AI finds the four corners of your piece and squares it up — perfect for panels leaning on a wall or shot at an angle. Drag the gold corners to fine-tune.</p>
+            <button class="pse-btn gold" onclick="psAIFindArt()">🎯 Detect Artwork with AI</button>
+            <button class="pse-btn" onclick="psStartQuad()">✋ Place corners myself</button>
+            <div class="pse-row" id="pse-quad-actions" style="display:none">
+              <button class="pse-btn green" onclick="psApplyQuad()">✓ Straighten</button>
+              <button class="pse-btn" onclick="psCancelQuad()">Cancel</button>
+            </div>
+            <button class="pse-btn" id="pse-quad-clear" style="display:none" onclick="psClearQuad()">↺ Undo straighten</button>
+          </div>
+          <div class="pse-card">
+            <div class="pse-h">One-tap product shots</div>
+            <p>After straightening, place the piece on a clean studio backdrop or hang it in a styled room.</p>
+            <div class="pse-row">
+              <button class="pse-btn" onclick="psSetTab('scene');psSetScene('studio','white')">🤍 Studio Shot</button>
+              <button class="pse-btn" onclick="psSetTab('scene');psSetScene('room',0)">🛋 View in Room</button>
+            </div>
+          </div>
+        </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;margin-bottom:14px">
-      <label class="ps-ctl">Brightness<input type="range" id="ps-brightness" min="0.6" max="1.5" step="0.01" value="1" oninput="psRender()"></label>
-      <label class="ps-ctl">Contrast<input type="range" id="ps-contrast" min="0.6" max="1.7" step="0.01" value="1" oninput="psRender()"></label>
-      <label class="ps-ctl">Saturation<input type="range" id="ps-saturate" min="0" max="2" step="0.01" value="1" oninput="psRender()"></label>
-      <label class="ps-ctl">Warmth<input type="range" id="ps-warmth" min="-40" max="40" step="1" value="0" oninput="psRender()"></label>
-      <label class="ps-ctl">Sharpen<input type="range" id="ps-sharpen" min="0" max="1" step="0.05" value="0" oninput="psRender()"></label>
-      <label class="ps-ctl">Vignette<input type="range" id="ps-vignette" min="0" max="0.8" step="0.02" value="0" oninput="psRender()"></label>
-    </div>
+        <div class="pse-pane" data-p="adjust">
+          <div class="pse-grp">Light</div>
+          <div id="pse-sl-light"></div>
+          <div class="pse-grp">Color</div>
+          <div id="pse-sl-color"></div>
+          <div class="pse-grp">Detail &amp; Finish</div>
+          <div id="pse-sl-detail"></div>
+        </div>
 
-    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;border-top:1px solid var(--border);padding-top:12px">
-      <button class="btn btn-ghost btn-sm" onclick="psGenerateVariations()">🎨 Make color variations</button>
-      <button class="btn btn-green btn-sm" onclick="psApplyMain()">✅ Apply as main photo</button>
+        <div class="pse-pane" data-p="looks">
+          <p class="pse-tip">Tap a look, then fine-tune in Adjust. Looks stack on top of AI or auto fixes.</p>
+          <div class="pse-looks" id="pse-looks"></div>
+          <div class="pse-grp" style="margin-top:14px">Strength</div>
+          <input type="range" id="pse-look-amt" min="0" max="100" value="100" oninput="psLookAmount(this.value)" onchange="psCommit()">
+        </div>
+
+        <div class="pse-pane" data-p="crop">
+          <div class="pse-grp">Aspect</div>
+          <div class="pse-chips" id="pse-aspects"></div>
+          <div class="pse-grp">Straighten</div>
+          <div class="pse-sl"><label>Angle <b id="pse-ang-v">0°</b></label><input type="range" id="pse-ang" min="-15" max="15" step="0.1" value="0" oninput="psSetAngle(this.value)" onchange="psCommit()"></div>
+          <div class="pse-grp">Rotate &amp; Flip</div>
+          <div class="pse-row">
+            <button class="pse-btn" onclick="psRotate(-1)">⟲ 90°</button>
+            <button class="pse-btn" onclick="psRotate(1)">⟳ 90°</button>
+            <button class="pse-btn" onclick="psFlip()">⇋ Flip</button>
+          </div>
+          <div class="pse-row" style="margin-top:8px">
+            <button class="pse-btn" onclick="psClearCrop()">Clear crop</button>
+          </div>
+          <p class="pse-tip">Drag the crop box or its corners on the photo.</p>
+        </div>
+
+        <div class="pse-pane" data-p="scene">
+          <div class="pse-grp">Studio backdrop</div>
+          <div class="pse-chips" id="pse-backdrops"></div>
+          <div class="pse-grp">Room mockups</div>
+          <div class="pse-rooms" id="pse-rooms"></div>
+          <div class="pse-sl" id="pse-scale-wrap"><label>Piece size <b id="pse-scale-v">100%</b></label><input type="range" id="pse-scale" min="50" max="130" value="100" oninput="psSetSceneScale(this.value)" onchange="psCommit()"></div>
+          <button class="pse-btn" onclick="psSetScene('none')">✕ No scene (photo only)</button>
+          <p class="pse-tip">Tip: straighten the artwork first (AI tab) so only the piece is placed into the scene.</p>
+        </div>
+
+        <div class="pse-pane" data-p="export">
+          <button class="pse-btn green big" onclick="psApplyMain()">✅ Use as main photo</button>
+          <button class="pse-btn" onclick="psAddVariation()">➕ Add as a variation</button>
+          <button class="pse-btn" onclick="psGenerateVariations()">🎨 Make 10 colorway variations</button>
+          <div class="pse-grp">Download</div>
+          <button class="pse-btn" onclick="psDownload()">⬇ Full-resolution JPG</button>
+          <button class="pse-btn" onclick="psSocialPack()">📱 Social pack (square, portrait, story)</button>
+          <p class="pse-tip">Variations and photo changes are saved when you Save / Publish the piece.</p>
+        </div>
+      </div>
     </div>
-    <div style="font-size:.64rem;color:var(--muted);margin-top:8px;text-align:right">Variations use this enhanced photo as the base and are added to the Variations list.</div>
   </div>
 </div>
 
 <style>
-  .ps-ctl{display:flex;flex-direction:column;gap:4px;font-size:.66rem;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.05em}
-  .ps-ctl input[type=range]{width:100%;accent-color:var(--amber)}
-  .ps-preset{font-size:.62rem;padding:4px 9px;border-radius:20px;border:1px solid var(--border);background:var(--white);cursor:pointer;color:var(--ink2);white-space:nowrap}
-  .ps-preset:hover{border-color:var(--amber);color:var(--amber)}
+  #cp-overlay-photostudio{background:rgba(8,7,10,.85);backdrop-filter:blur(6px)}
+  .pse{--pk:#16131a;--pk2:#1f1b24;--pk3:#2a2530;--ln:rgba(255,255,255,.08);--tx:#f1ebe2;--mu:#a49aa8;--gd:#d6b06a;--gd2:#f2d9a2;
+    width:min(1320px,100vw);height:min(900px,100vh);background:var(--pk);color:var(--tx);display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 30px 90px rgba(0,0,0,.6);font-family:inherit}
+  .pse-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid var(--ln);background:#110f14}
+  .pse-brand{font-family:'Playfair Display',serif;font-size:1.05rem;white-space:nowrap}
+  .pse-brand em{color:var(--gd);font-style:italic}
+  .pse-tbar{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .pse-ib{background:var(--pk2);border:1px solid var(--ln);color:var(--tx);border-radius:8px;padding:7px 11px;font-size:.74rem;cursor:pointer;font-family:inherit}
+  .pse-ib:hover{border-color:var(--gd)} .pse-ib:disabled{opacity:.35;cursor:default}
+  .pse-ib.on{background:var(--gd);color:#1a1206;border-color:var(--gd)}
+  .pse-x{font-size:.9rem}
+  .pse-body{flex:1;display:grid;grid-template-columns:1fr 340px;min-height:0}
+  .pse-stage{position:relative;display:flex;align-items:center;justify-content:center;padding:18px;min-height:0;
+    background:repeating-conic-gradient(#141117 0 25%,#18151b 0 50%) 0 0/22px 22px}
+  .pse-canvas-wrap{position:relative;display:inline-block;line-height:0;max-width:100%;max-height:100%}
+  #ps-canvas{max-width:100%;max-height:calc(min(900px,100vh) - 110px);box-shadow:0 10px 40px rgba(0,0,0,.55);border-radius:3px;display:block}
+  .pse-ov{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+  .pse-ov .h{pointer-events:all;cursor:grab;fill:var(--gd);stroke:#1a1206;stroke-width:2}
+  .pse-ov .mv{pointer-events:all;cursor:move;fill:transparent}
+  .pse-split{position:absolute;top:0;bottom:0;left:50%;width:0;pointer-events:all;cursor:ew-resize}
+  .pse-split i{position:absolute;top:0;bottom:0;left:-1px;width:2px;background:#fff;box-shadow:0 0 8px rgba(0,0,0,.6)}
+  .pse-split span{position:absolute;top:8px;font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;background:rgba(0,0,0,.6);padding:3px 7px;border-radius:4px;line-height:1.3;white-space:nowrap}
+  .pse-split span:first-child{right:8px} .pse-split span:nth-child(3){left:8px}
+  .pse-split::after{content:'⟷';position:absolute;top:50%;left:-16px;width:32px;height:32px;margin-top:-16px;border-radius:50%;background:#fff;color:#111;display:flex;align-items:center;justify-content:center;font-size:.9rem;line-height:1}
+  .pse-busy{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:rgba(10,8,12,.55);font-size:.8rem;color:var(--gd2);z-index:3}
+  .pse-busy.on{display:flex}
+  .pse-spin{width:38px;height:38px;border-radius:50%;border:3px solid rgba(214,176,106,.25);border-top-color:var(--gd);animation:pseSpin 1s linear infinite}
+  @keyframes pseSpin{to{transform:rotate(360deg)}}
+  .pse-note{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(20,17,24,.92);border:1px solid rgba(214,176,106,.4);color:var(--tx);font-size:.72rem;padding:8px 14px;border-radius:20px;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90%;text-align:center}
+  .pse-note.on{opacity:1}
+  .pse-info{position:absolute;left:12px;top:10px;font-size:.6rem;color:var(--mu);letter-spacing:.05em}
+  .pse-panel{border-left:1px solid var(--ln);background:var(--pk2);display:flex;flex-direction:column;min-height:0}
+  .pse-tabs{display:flex;border-bottom:1px solid var(--ln);overflow-x:auto;flex-shrink:0}
+  .pse-tabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;color:var(--mu);padding:11px 8px;font-size:.72rem;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit}
+  .pse-tabs button.on{color:var(--gd2);border-bottom-color:var(--gd)}
+  .pse-pane{display:none;padding:14px;overflow-y:auto;flex:1}
+  .pse-pane.on{display:block}
+  .pse-card{background:var(--pk3);border:1px solid var(--ln);border-radius:12px;padding:13px;margin-bottom:12px}
+  .pse-hero{background:linear-gradient(160deg,#2f2733,#231e27);border-color:rgba(214,176,106,.3)}
+  .pse-h{font-family:'Playfair Display',serif;font-size:.98rem;margin-bottom:5px;color:var(--gd2)}
+  .pse-card p,.pse-tip{font-size:.7rem;color:var(--mu);line-height:1.55;margin:0 0 10px}
+  .pse-btn{display:block;width:100%;background:var(--pk);border:1px solid var(--ln);color:var(--tx);border-radius:9px;padding:9px 12px;font-size:.74rem;font-weight:600;cursor:pointer;margin-bottom:7px;font-family:inherit;text-align:center}
+  .pse-btn:hover{border-color:var(--gd)}
+  .pse-btn.gold{background:linear-gradient(135deg,#b8913f,#f2d9a2 55%,#c9a24f);color:#1a1206;border-color:transparent}
+  .pse-btn.green{background:#2f7d4f;border-color:#2f7d4f;color:#fff}
+  .pse-btn.big{padding:13px;font-size:.82rem}
+  .pse-row{display:flex;gap:7px} .pse-row .pse-btn{flex:1}
+  .pse-crit{font-size:.7rem;line-height:1.6;color:var(--tx);display:none;margin-top:6px;padding:10px;border-radius:8px;background:rgba(0,0,0,.25);border-left:2px solid var(--gd)}
+  .pse-crit.on{display:block}
+  .pse-crit ul{margin:6px 0 0 16px;padding:0;color:var(--mu)}
+  .pse-grp{font-size:.6rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gd);margin:12px 0 6px}
+  .pse-grp:first-child{margin-top:0}
+  .pse-sl{margin-bottom:9px}
+  .pse-sl label{display:flex;justify-content:space-between;font-size:.7rem;color:var(--tx);margin-bottom:3px;cursor:pointer}
+  .pse-sl label b{font-weight:500;color:var(--mu);font-variant-numeric:tabular-nums}
+  .pse input[type=range]{width:100%;accent-color:var(--gd)}
+  .pse-looks{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .pse-look{background:none;border:1px solid var(--ln);border-radius:8px;padding:4px;cursor:pointer;color:var(--tx);font-size:.62rem;font-family:inherit}
+  .pse-look canvas{width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;display:block;margin-bottom:4px;background:#000}
+  .pse-look.on{border-color:var(--gd);box-shadow:0 0 0 1px var(--gd)}
+  .pse-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .pse-chip{background:var(--pk);border:1px solid var(--ln);color:var(--tx);border-radius:20px;padding:6px 11px;font-size:.68rem;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:6px}
+  .pse-chip.on{border-color:var(--gd);color:var(--gd2)}
+  .pse-chip i{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid rgba(255,255,255,.3)}
+  .pse-rooms{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  .pse-room{background:none;border:1px solid var(--ln);border-radius:8px;padding:0;overflow:hidden;cursor:pointer;color:var(--tx);font-size:.62rem;font-family:inherit;text-align:center}
+  .pse-room div{aspect-ratio:4/3;background-size:cover;background-position:center}
+  .pse-room span{display:block;padding:5px}
+  .pse-room.on{border-color:var(--gd);box-shadow:0 0 0 1px var(--gd)}
+  @media (max-width:820px){
+    .pse{height:100vh;border-radius:0}
+    .pse-body{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) minmax(0,46%)}
+    .pse-panel{border-left:0;border-top:1px solid var(--ln)}
+    .pse-stage{padding:10px}
+    #ps-canvas{max-height:calc(54vh - 70px)}
+    .pse-top{padding:8px 10px}
+    .pse-brand{font-size:.84rem}
+    .pse-tbar{flex-wrap:nowrap;gap:4px}
+    .pse-ib{padding:6px 7px;font-size:.64rem}
+  }
 </style>
 
 <!-- ═══════════════════════════════════════════════
