@@ -9,7 +9,12 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-10-22_2149 UTC
+  LAST UPDATED: 2026-10-22_2215 UTC
+  CHANGE: 2026-10-22_2215 — "Edit Website" page: edit the site's text, About
+          photo & story, contact email / Instagram / TikTok, and the rental
+          Staged Settings scenes (public gallery row 'site_content'; only
+          values that differ from the site's own text are stored). Piece
+          details now include rental options (available to rent + rates).
   CHANGE: 2026-10-22_2149 — Delete inquiries/orders (Orders table + order
           details) and delete contacts (CRM row + contact details). A deleted
           contact is remembered (settings row 'crm_removed') so the automatic
@@ -590,6 +595,7 @@ tr:hover td{background:var(--bg)}
     <button class="nav-btn" onclick="goPage('publish',this)"><span class="ico">📸</span>Publish a Piece</button>
     <button class="nav-btn" onclick="goPage('collection',this)"><span class="ico">🖼</span>My Collection</button>
     <button class="nav-btn" onclick="goPage('gallerywalk',this)"><span class="ico">🏛️</span>Gallery Walk</button>
+    <button class="nav-btn" onclick="goPage('siteeditor',this)"><span class="ico">✏️</span>Edit Website</button>
     <button class="nav-btn" onclick="goPage('rentals',this)"><span class="ico">🎪</span>Rentals</button>
     <button class="nav-btn" onclick="goPage('classes',this)"><span class="ico">🎓</span>Classes</button>
     <button class="nav-btn" onclick="goPage('pourdays',this)"><span class="ico">🗓️</span>Studio Calendar</button>
@@ -845,6 +851,19 @@ tr:hover td{background:var(--bg)}
     </div>
 
     <!-- GALLERY WALK — choose the 10 pictures on the website's front page (added 2026-10-21_2045 UTC) -->
+    <!-- EDIT WEBSITE — text, photos, contact info, rental scenes (added 2026-10-22_2215 UTC) -->
+    <div class="page" id="page-siteeditor">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px;font-size:.76rem;color:var(--muted);line-height:1.6">Change the words and photos on your website. Wrap a word in <strong>*stars*</strong> to give it the accent italic style; press Enter for a new line. Clear a box to go back to the original text. Changes go live when you click <strong>Publish</strong>.</div>
+          <a class="btn btn-ghost btn-sm" href="https://www.cecespieces.shop/" target="_blank" rel="noopener">View site ↗</a>
+          <button class="btn btn-amber btn-sm" id="se-save-btn" onclick="saveSiteContent()">🚀 Publish changes</button>
+        </div>
+        <div style="font-size:.7rem;color:var(--muted);padding:0 20px 14px" id="se-status"></div>
+      </div>
+      <div id="se-root"><div style="text-align:center;padding:40px;color:var(--muted);font-size:.78rem">Loading your website…</div></div>
+    </div>
+
     <div class="page" id="page-gallerywalk">
       <div class="card" style="margin-bottom:16px">
         <div class="card-head" style="flex-wrap:wrap;gap:8px">
@@ -2198,6 +2217,19 @@ tr:hover td{background:var(--bg)}
         <div class="fg"><label class="flabel">Dimensions</label><input class="finput" id="pm-e-dims" placeholder="e.g. 12 × 16 in"></div>
         <div class="fg"><label class="flabel">Materials</label><input class="finput" id="pm-e-mats" placeholder="Materials"></div>
         <div class="fg"><label class="flabel">Description</label><textarea class="finput" id="pm-e-desc" rows="3" style="resize:vertical" placeholder="Description"></textarea></div>
+        <!-- Rental options (added 2026-10-22_2215 UTC) — shown on the website's Rentals page -->
+        <div style="border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:12px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:.76rem;font-weight:600;cursor:pointer"><input type="checkbox" id="pm-e-rent" onchange="document.getElementById('pm-rent-fields').style.display=this.checked?'':'none'"> 🎪 Available to rent</label>
+          <div id="pm-rent-fields" style="display:none;margin-top:10px">
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+              <div class="fg" style="margin:0"><label class="flabel">Per day ($)</label><input class="finput" id="pm-e-rent-day" placeholder="75"></div>
+              <div class="fg" style="margin:0"><label class="flabel">Weekend ($)</label><input class="finput" id="pm-e-rent-wknd" placeholder="120"></div>
+              <div class="fg" style="margin:0"><label class="flabel">Week ($)</label><input class="finput" id="pm-e-rent-week" placeholder="200"></div>
+              <div class="fg" style="margin:0"><label class="flabel">Event ($)</label><input class="finput" id="pm-e-rent-event" placeholder="150"></div>
+            </div>
+            <div class="fg" style="margin:8px 0 0"><label class="flabel">Security deposit ($)</label><input class="finput" id="pm-e-rent-deposit" placeholder="Refunded on safe return"></div>
+          </div>
+        </div>
         <button type="button" class="btn btn-amber btn-full" onclick="savePieceEdits()" style="margin-bottom:14px">💾 Save details</button>
         <div style="border-top:1px solid var(--border);margin-bottom:14px;padding-top:12px">
           <div style="font-size:.72rem;font-weight:700;margin-bottom:7px">🎨 Variations <span style="font-weight:400;color:var(--muted);font-size:.64rem">— shown on the website</span></div>
@@ -2577,6 +2609,7 @@ const pmeta = {
   publish:     { t:'Publish a Piece', s:'Upload → set price → hit the button. Done.' },
   collection:  { t:'My Collection', s:'All your original pieces.' },
   gallerywalk: { t:'Gallery Walk', s:'Choose the 10 pictures on your website’s front page.' },
+  siteeditor:  { t:'Edit Website', s:'Words, photos, contact details and rental settings on your site.' },
   rentals:     { t:'Rentals', s:'Birthdays, weddings, house staging & more.' },
   classes:     { t:'Online Classes', s:'Choose what to offer, schedule live sessions, set prices & book students.' },
   pourdays:    { t:'Studio Calendar', s:'Pour Days, cure windows & commission deadlines — paced for your flow.' },
@@ -2609,6 +2642,7 @@ function goPage(id, btn) {
   if (id === 'newsletter')  renderNewsletter();
   if (id === 'pricing')     renderPricing();
   if (id === 'gallerywalk') renderGalleryWalk();
+  if (id === 'siteeditor')  renderSiteEditor();
   if (id === 'payments')    loadPayHandles();
   if (id === 'orders')      renderOrders();
   if (id === 'collection')  { renderCollection(collFilter); loadShopLayout().then(()=>renderCollection(collFilter)); }
@@ -4557,6 +4591,156 @@ function moveCat(ci, dir){
   [cats[ci],cats[cj]]=[cats[cj],cats[ci]];
   rebuildOrder(cats, groups); renderArrange(); saveShopLayout();
 }
+// ════════════════════════════════════════════════════════════
+//  EDIT WEBSITE — saved to the public `gallery` row 'site_content'
+//  ({ "<key>": value, ..., scenes:[...] }). The website tags each editable
+//  element with data-edit="<key>" and applies these on load. Only values that
+//  differ from the site's own text are stored, so a cleared box = original.
+// ════════════════════════════════════════════════════════════
+const SITE_SRC_URL = 'https://raw.githubusercontent.com/modom123/cecethepieces/main/index.html';
+const SE_EVENTS = ['Wedding','Birthday','House Staging','Corporate Event','Art Exhibition','Other'];
+// t: text (one line) | area (multi-line) | paras (paragraphs) | pills (one per line) | img | handle (@name) | email
+const SE_FIELDS = [
+  { g:'🏠 Home page', f:[
+    ['home.eyebrow','Small line above the headline'], ['home.title','Main headline','area'], ['home.sub','Text under the headline','area'],
+    ['home.value1_title','Highlight 1 — title'], ['home.value1_desc','Highlight 1 — text','area'],
+    ['home.value2_title','Highlight 2 — title'], ['home.value2_desc','Highlight 2 — text','area'],
+    ['home.value3_title','Highlight 3 — title'], ['home.value3_desc','Highlight 3 — text','area'],
+    ['home.rent_title','Rentals section — heading'], ['home.rent_text','Rentals section — text','area'],
+    ['home.quote','Quote','area'], ['home.quote_by','Quote — signed by'] ]},
+  { g:'👩‍🎨 About page', f:[
+    ['about.title','Page title'], ['about.photo','Your photo','img'],
+    ['about.bio','Your story (leave a blank line between paragraphs)','paras'], ['about.tags','Tags under your story (one per line)','pills'],
+    ['about.concept_label','Concept — small heading'], ['about.concept','Concept — text','area'],
+    ['about.step1_title','Process step 1 — title'], ['about.step1_desc','Process step 1 — text','area'],
+    ['about.step2_title','Process step 2 — title'], ['about.step2_desc','Process step 2 — text','area'],
+    ['about.step3_title','Process step 3 — title'], ['about.step3_desc','Process step 3 — text','area'],
+    ['about.step4_title','Process step 4 — title'], ['about.step4_desc','Process step 4 — text','area'],
+    ['about.memorial1','Memorial pieces — paragraph 1','area'], ['about.memorial2','Memorial pieces — paragraph 2','area'] ]},
+  { g:'🎪 Rentals page', f:[
+    ['rentals.sub','Text under the page title','area'],
+    ['rentals.step1_title','How it works 1 — title'], ['rentals.step1_desc','How it works 1 — text','area'],
+    ['rentals.step2_title','How it works 2 — title'], ['rentals.step2_desc','How it works 2 — text','area'],
+    ['rentals.step3_title','How it works 3 — title'], ['rentals.step3_desc','How it works 3 — text','area'],
+    ['rentals.step4_title','How it works 4 — title'], ['rentals.step4_desc','How it works 4 — text','area'],
+    ['rentals.scenes_intro','Staged Settings — intro','area'], ['rentals.stager_text','Designers & stagers — text','area'] ]},
+  { g:'✉️ Contact & footer', f:[
+    ['contact.email','Email address','email'], ['contact.instagram','Instagram name','handle'], ['contact.tiktok','TikTok name','handle'],
+    ['contact.sub','Contact page — text under the title','area'], ['contact.response','Contact page — reply time note'],
+    ['footer.tagline','Footer tagline','area'] ]}
+];
+let seDefaults = null, seSaved = {}, seVals = {}, seScenes = null, seDefaultScenes = [];
+// Read the site's own text from its source (data-edit elements) as the defaults.
+function seReadDefaults(html){
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = {}, clean = x => x.replace(/[ \t]*\n[ \t]*/g,' ').replace(/ {2,}/g,' ').trim();
+  doc.querySelectorAll('[data-edit]').forEach(el=>{
+    const k = el.dataset.edit, t = el.dataset.editType || 'text';
+    if (out[k] != null) return;
+    if (t==='img') out[k] = el.getAttribute('src')||'';
+    else if (t==='paras') out[k] = [...el.querySelectorAll('p')].map(p=>clean(p.textContent)).join('\n\n');
+    else if (t==='pills') out[k] = [...el.children].map(c=>clean(c.textContent)).join('\n');
+    else if (t==='handle') out[k] = clean(el.textContent).replace(/^@/,'');
+    else {
+      const tmp = el.cloneNode(true);
+      tmp.querySelectorAll('em').forEach(e=>e.replaceWith('*'+e.textContent+'*'));
+      tmp.querySelectorAll('br').forEach(b=>b.replaceWith('\u0001'));
+      out[k] = clean(tmp.textContent).replace(/ ?\u0001 ?/g,'\n');
+    }
+  });
+  seDefaultScenes = [...doc.querySelectorAll('#scene-list .scene-block')].map(b=>{
+    const btn = b.querySelector('button[onclick*="requestSetting"]');
+    const ev = ((btn && btn.getAttribute('onclick')) || '').match(/requestSetting\(this,'([^']*)'/);
+    return { emoji:(b.querySelector('span')||{}).textContent||'✨', title:clean((b.querySelector('h3')||{}).textContent||''),
+      event: ev ? ev[1] : 'Other', blurb: clean((b.querySelector('p')||{}).textContent||''),
+      items:[...b.querySelectorAll('.scene-fig')].map(f=>({ title:f.dataset.title||'', image:(f.querySelector('img')||{}).getAttribute?.('src')||'' })) };
+  });
+  return out;
+}
+async function renderSiteEditor(){
+  const root = document.getElementById('se-root');
+  if (seDefaults === null){
+    try { const r = await fetch(SITE_SRC_URL, { cache:'no-store' }); seDefaults = r.ok ? seReadDefaults(await r.text()) : {}; }
+    catch(e){ seDefaults = {}; }
+    try { const rows = await sb.query('gallery',{ select:'*', eq:{ id:'site_content' } }); seSaved = (rows&&rows[0]&&rows[0].data)||{}; }
+    catch(e){ seSaved = {}; }
+    seVals = {};
+    SE_FIELDS.forEach(g=>g.f.forEach(([k])=>{ seVals[k] = (seSaved[k]!=null && String(seSaved[k]).trim()!=='') ? seSaved[k] : (seDefaults[k]||''); }));
+    seScenes = JSON.parse(JSON.stringify((Array.isArray(seSaved.scenes)&&seSaved.scenes.length) ? seSaved.scenes : seDefaultScenes));
+  }
+  const esc = v => String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const field = ([k,label,t]) => {
+    const v = seVals[k]||'', changed = (seDefaults[k]||'') !== v;
+    const dot = changed ? ' <span style="color:var(--amber)" title="Changed from the original">●</span>' : '';
+    if (t==='img') return `<div class="fg"><label class="flabel">${label}${dot}</label>
+      <div style="display:flex;gap:12px;align-items:center">${v?`<img src="${esc(v)}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">`:'<div style="width:90px;height:90px;border-radius:8px;background:var(--bg);border:1px dashed var(--border)"></div>'}
+      <div style="display:flex;flex-direction:column;gap:6px"><label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">📷 Upload photo<input type="file" accept="image/*" style="display:none" onchange="seUploadPhoto('${k}',event)"></label>
+      ${changed?`<button class="btn btn-ghost btn-xs" onclick="seSet('${k}',null,true)">↺ Use original</button>`:''}</div></div></div>`;
+    const big = t==='area'||t==='paras'||t==='pills';
+    const input = big
+      ? `<textarea class="finput" rows="${t==='paras'?8:t==='pills'?5:3}" style="resize:vertical" oninput="seSet('${k}',this.value)" placeholder="${esc(seDefaults[k]||'')}">${esc(v)}</textarea>`
+      : `<input class="finput" value="${esc(v)}" oninput="seSet('${k}',this.value)" placeholder="${esc(seDefaults[k]||'')}" ${t==='email'?'type="email"':''}>`;
+    return `<div class="fg"><label class="flabel">${label}${t==='handle'?' <span style="font-weight:400;color:var(--muted)">(without @)</span>':''}${dot}</label>${input}</div>`;
+  };
+  const pieceOpts = pieces.filter(p=>p.image).map(p=>`<option value="${p.id}">${esc(p.title)}</option>`).join('');
+  const scenesHTML = (seScenes||[]).map((sc,i)=>`<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px">
+      <div style="display:grid;grid-template-columns:70px 1fr 170px auto;gap:8px;align-items:end">
+        <div class="fg" style="margin:0"><label class="flabel">Icon</label><input class="finput" value="${esc(sc.emoji)}" oninput="seScene(${i},'emoji',this.value)"></div>
+        <div class="fg" style="margin:0"><label class="flabel">Scene title</label><input class="finput" value="${esc(sc.title)}" oninput="seScene(${i},'title',this.value)"></div>
+        <div class="fg" style="margin:0"><label class="flabel">Event type</label><select class="fsel" onchange="seScene(${i},'event',this.value)">${SE_EVENTS.map(e=>`<option ${e===sc.event?'selected':''}>${e}</option>`).join('')}</select></div>
+        <div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" title="Move up" ${i===0?'disabled':''} onclick="seMoveScene(${i},-1)">▲</button><button class="btn btn-ghost btn-xs" title="Move down" ${i===seScenes.length-1?'disabled':''} onclick="seMoveScene(${i},1)">▼</button><button class="btn btn-ghost btn-xs" style="color:var(--coral)" title="Remove scene" onclick="seRemoveScene(${i})">🗑</button></div>
+      </div>
+      <div class="fg" style="margin:8px 0"><label class="flabel">Description</label><textarea class="finput" rows="2" style="resize:vertical" oninput="seScene(${i},'blurb',this.value)">${esc(sc.blurb)}</textarea></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">${(sc.items||[]).map((it,j)=>`<div style="width:92px;text-align:center"><div style="position:relative"><img src="${esc(it.image)}" style="width:92px;height:70px;object-fit:cover;border-radius:6px;display:block"><button class="btn btn-ghost btn-xs" style="position:absolute;top:2px;right:2px;padding:0 5px;background:#fff" title="Remove" onclick="seRemoveItem(${i},${j})">✕</button></div><input class="finput" style="font-size:.62rem;padding:3px 5px;margin-top:3px" value="${esc(it.title)}" oninput="seItemTitle(${i},${j},this.value)"></div>`).join('')||'<div style="font-size:.72rem;color:var(--muted)">No pieces in this scene yet.</div>'}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><select class="fsel" style="max-width:260px" onchange="seAddPiece(${i},this.value);this.value=''"><option value="">➕ Add a piece from your collection…</option>${pieceOpts}</select>
+      <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">📷 Add a photo<input type="file" accept="image/*" style="display:none" onchange="seAddPhoto(${i},event)"></label></div>
+    </div>`).join('');
+  const note = Object.keys(seDefaults).length ? '' : `<div class="card" style="border-color:var(--amber)"><div class="card-body" style="font-size:.76rem;color:var(--ink2)">⚠️ Couldn't read your website's current text, so empty boxes below mean “keep what's on the site now”. Anything you type replaces it.</div></div>`;
+  root.innerHTML = note + SE_FIELDS.map(g=>`<div class="card"><div class="card-head"><span class="card-title">${g.g}</span></div><div class="card-body">${g.f.map(field).join('')}</div></div>`).join('')
+    + `<div class="card"><div class="card-head"><span class="card-title">🎪 Rentals — Staged Settings</span><button class="btn btn-ghost btn-sm" onclick="seAddScene()">＋ Add scene</button></div><div class="card-body">
+      <div style="font-size:.74rem;color:var(--muted);line-height:1.6;margin-bottom:12px">The ready-made looks on your Rentals page. Visitors tap “Request these pieces” to start a rental request with the scene's pieces filled in. Prices and which pieces can be rented are set on each piece (My Collection → open a piece → Available to rent).</div>
+      ${scenesHTML||'<div style="font-size:.74rem;color:var(--muted)">No scenes — add one, or leave empty to keep the original three.</div>'}</div></div>`;
+}
+function seMark(){ document.getElementById('se-status').textContent='Unpublished changes — click Publish to put them live.'; }
+function seSet(k, v, rerender){ seVals[k] = v==null ? (seDefaults[k]||'') : v; seMark(); if (rerender) renderSiteEditor(); }
+function seUploadPhoto(k, e){
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => compressImage(ev.target.result, 1400, 0.85, url => { seSet(k, url, true); });
+  r.readAsDataURL(f);
+}
+function seScene(i, k, v){ seScenes[i][k] = v; seMark(); }
+function seItemTitle(i, j, v){ seScenes[i].items[j].title = v; seMark(); }
+function seRemoveItem(i, j){ seScenes[i].items.splice(j,1); seMark(); renderSiteEditor(); }
+function seAddPiece(i, id){ const p = pieces.find(x=>String(x.id)===String(id)); if (!p) return; (seScenes[i].items=seScenes[i].items||[]).push({ title:p.title, image:p.image }); seMark(); renderSiteEditor(); }
+function seAddPhoto(i, e){
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => compressImage(ev.target.result, 900, 0.82, url => { (seScenes[i].items=seScenes[i].items||[]).push({ title:'', image:url }); seMark(); renderSiteEditor(); });
+  r.readAsDataURL(f);
+}
+function seAddScene(){ seScenes.push({ emoji:'✨', title:'New scene', event:'Other', blurb:'', items:[] }); seMark(); renderSiteEditor(); }
+function seRemoveScene(i){ if (!confirm('Remove this scene from your Rentals page?')) return; seScenes.splice(i,1); seMark(); renderSiteEditor(); }
+function seMoveScene(i, d){ const j=i+d; if (j<0||j>=seScenes.length) return; [seScenes[i],seScenes[j]]=[seScenes[j],seScenes[i]]; seMark(); renderSiteEditor(); }
+async function saveSiteContent(){
+  const st = document.getElementById('se-status'), btn = document.getElementById('se-save-btn');
+  const data = {};
+  for (const k in seVals){ const v = String(seVals[k]||''); if (v.trim() && v !== (seDefaults[k]||'')) data[k] = v; }
+  const em = (data['contact.email']||'').trim();
+  if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { showToast('That email address doesn’t look right.','t-error'); return; }
+  const scenes = (seScenes||[]).filter(sc=>(sc.title||'').trim());
+  if (JSON.stringify(scenes) !== JSON.stringify(seDefaultScenes)) data.scenes = scenes;
+  btn.disabled = true; st.textContent = 'Publishing…';
+  try {
+    await sb.upsert('gallery', { id:'site_content', data, updated_at:new Date().toISOString() }, 'id');
+    seSaved = data;
+    st.textContent = '✅ Published — refresh your website to see it.';
+    showToast('✏️ Website updated','t-success'); addActivity('✏️ Updated website text & photos');
+  } catch(e) { st.textContent = '⚠️ Could not publish — check your connection and try again.'; }
+  btn.disabled = false;
+  renderSiteEditor();
+}
+
 // Debounced so a run of arrow clicks becomes one save.
 function saveShopLayout(){
   const st=document.getElementById('lay-status');
@@ -4584,6 +4768,13 @@ function openPieceModal(id) {
   document.getElementById('pm-e-dims').value  = p.dimensions||'';
   document.getElementById('pm-e-mats').value  = p.materials||'';
   document.getElementById('pm-e-desc').value  = p.description||'';
+  document.getElementById('pm-e-rent').checked = !!p.for_rent;
+  document.getElementById('pm-rent-fields').style.display = p.for_rent ? '' : 'none';
+  document.getElementById('pm-e-rent-day').value     = p.rent_day||'';
+  document.getElementById('pm-e-rent-wknd').value    = p.rent_weekend||'';
+  document.getElementById('pm-e-rent-week').value    = p.rent_week||'';
+  document.getElementById('pm-e-rent-event').value   = p.rent_event||'';
+  document.getElementById('pm-e-rent-deposit').value = p.rent_deposit||'';
   document.getElementById('pm-status-btn').textContent = p.status==='sold'?'Mark as Available':'Mark as Sold';
   pmVariationsBuf = normVars(p);
   renderVarStrip('pm');
@@ -4604,14 +4795,22 @@ async function savePieceEdits() {
     deposit:     document.getElementById('pm-e-deposit').value.trim() || null,
     dimensions:  document.getElementById('pm-e-dims').value.trim(),
     materials:   document.getElementById('pm-e-mats').value.trim(),
-    description: document.getElementById('pm-e-desc').value.trim()
+    description: document.getElementById('pm-e-desc').value.trim(),
+    for_rent:     document.getElementById('pm-e-rent').checked,
+    rent_day:     document.getElementById('pm-e-rent-day').value.trim() || null,
+    rent_weekend: document.getElementById('pm-e-rent-wknd').value.trim() || null,
+    rent_week:    document.getElementById('pm-e-rent-week').value.trim() || null,
+    rent_event:   document.getElementById('pm-e-rent-event').value.trim() || null,
+    rent_deposit: document.getElementById('pm-e-rent-deposit').value.trim() || null
   };
   if (!upd.title) { showToast('Add a title.','t-error'); return; }
+  if (upd.for_rent && !(upd.rent_day||upd.rent_weekend||upd.rent_week||upd.rent_event)) { showToast('Add at least one rental rate.','t-error'); return; }
   if (!upd.type)  { showToast('Pick a category.','t-error'); return; }
   try {
     await sb.update('pieces', p.id, upd);
     Object.assign(p, upd);
     renderCollection(); refreshDash(); if (typeof populatePayPieceSel==='function') populatePayPieceSel();
+    renderRentalStats(); renderRentalPieces(); populateRentPieceSels();
     showToast('✅ Piece updated — live on your website.','t-success');
     closePieceModal();
   } catch(e) { showToast('Error saving changes','t-error'); }
