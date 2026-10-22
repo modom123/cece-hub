@@ -1,7 +1,8 @@
 // create-checkout — Supabase Edge Function
 // ---------------------------------------------------------------------------
-// Creates a Stripe Checkout Session for either a cecespieces ARTWORK (piece_id)
-// or an ACADEMY CLASS (class_id) and returns its URL. The PRICE IS ALWAYS READ
+// Creates a Stripe Checkout Session for a cecespieces ARTWORK (piece_id, with an
+// optional variation index), an ACADEMY CLASS (class_id), a DONATION (donation)
+// or a SPONSORSHIP package (sponsor) and returns its URL. The PRICE IS ALWAYS READ
 // FROM THE DATABASE (service role), never trusted from the browser, so a visitor
 // can't tamper with the amount. It records a pending order (and, for a class, a
 // pending enrollment) for the hub; the stripe-webhook function confirms it on pay.
@@ -96,6 +97,69 @@ Deno.serve(async (req) => {
     }
 
 
+    // ──────────────────── DONATION / SPONSORSHIP (added 2026-10-22_2245) ────────────────────
+    // Settings come from the public `gallery` row "support", edited in the hub
+    // (Donations & Sponsors). Sponsorship prices are read from there, never from
+    // the browser; a donation's amount is the donor's choice, within limits.
+    if (body.donation || body.sponsor != null) {
+      const gr = await db(`gallery?id=eq.support&select=data`);
+      const grows = await gr.json();
+      const cfg = (Array.isArray(grows) && grows[0]?.data) || {};
+      const name  = String(body.name || "").slice(0, 120);
+      const email = String(body.email || "").trim().slice(0, 200) || undefined;
+      const note  = String(body.note || "").slice(0, 400);
+
+      if (body.donation) {
+        if (cfg.donate && cfg.donate.enabled === false) return json({ error: "Donations are paused right now." }, 409);
+        const amount = Math.round(parseFloat(String(body.donation.amount)) * 100);
+        if (!amount || amount < 100 || amount > 1000000) return json({ error: "Please choose an amount between $1 and $10,000." }, 400);
+        const session = await stripe.checkout.sessions.create({
+          mode: "payment", submit_type: "donate",
+          line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amount, product_data: { name: (cfg.donate?.title || "Support cecespieces").slice(0, 120) } } }],
+          customer_email: email,
+          success_url: `${SITE_URL}/?checkout=success&type=donation`,
+          cancel_url: `${SITE_URL}/?checkout=cancel&type=donation`,
+          metadata: { kind: "donation", donor_name: name, note },
+        });
+        if (!isTest) db(`orders`, {
+          method: "POST", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({
+            piece_title: "Donation", price: (amount / 100).toFixed(2), type: "donation", status: "pending",
+            source: "stripe checkout", customer_name: name || null, customer_email: email || null,
+            notes: `${note ? note + " · " : ""}Stripe session ${session.id}`,
+          }),
+        }).catch(() => {});
+        return json({ url: session.url });
+      }
+
+      const packs = Array.isArray(cfg.sponsor?.packages) ? cfg.sponsor.packages : [];
+      const pk = packs[Number(body.sponsor)];
+      if (!pk || cfg.sponsor?.enabled === false) return json({ error: "That sponsorship package isn't available." }, 404);
+      const amount = Math.round(parseFloat(String(pk.price)) * 100);
+      if (!amount || amount < 100) return json({ error: "This package has no price set — please get in touch." }, 400);
+      const monthly = pk.interval === "month";
+      const pname = `${String(pk.name || "Sponsorship").slice(0, 100)} — cecespieces sponsorship`;
+      const session = await stripe.checkout.sessions.create({
+        mode: monthly ? "subscription" : "payment",
+        line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amount, product_data: { name: pname }, ...(monthly ? { recurring: { interval: "month" } } : {}) } }],
+        customer_email: email,
+        success_url: `${SITE_URL}/?checkout=success&type=sponsor`,
+        cancel_url: `${SITE_URL}/?checkout=cancel&type=sponsor`,
+        metadata: { kind: "sponsorship", package: String(pk.name || ""), sponsor_name: name, note },
+        ...(monthly ? { subscription_data: { metadata: { kind: "sponsorship", package: String(pk.name || "") } } } : {}),
+      });
+      if (!isTest) db(`orders`, {
+        method: "POST", headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({
+          piece_title: `Sponsorship — ${pk.name || "package"}${monthly ? " (monthly)" : ""}`, price: (amount / 100).toFixed(2),
+          type: "sponsorship", status: "pending", source: "stripe checkout",
+          customer_name: name || null, customer_email: email || null,
+          notes: `${note ? note + " · " : ""}Stripe session ${session.id}`,
+        }),
+      }).catch(() => {});
+      return json({ url: session.url });
+    }
+
     // ─────────────────────────── CLASS PURCHASE ───────────────────────────
     if (class_id) {
       const r = await db(`classes?id=eq.${encodeURIComponent(class_id)}&select=*`);
@@ -161,7 +225,18 @@ Deno.serve(async (req) => {
     if (!piece) return json({ error: "Piece not found" }, 404);
     if (piece.status === "sold") return json({ error: "This piece has already sold." }, 409);
 
-    const priceC   = Math.round((parseFloat(piece.price) || 0) * 100);
+    // Optional variation (shape / size / colorway) chosen on the site. Its own
+    // price, if set in the hub, replaces the piece price.
+    let vars = piece.variations;
+    if (typeof vars === "string") { try { vars = JSON.parse(vars); } catch (_) { vars = []; } }
+    const vIdx = body.variation == null ? -1 : Number(body.variation);
+    const variant = Array.isArray(vars) && vIdx >= 0 && vars[vIdx] && typeof vars[vIdx] === "object" ? vars[vIdx] : null;
+    const vLabel = variant ? String(variant.label || `Option ${vIdx + 1}`).slice(0, 80) : "";
+    const vPrice = variant ? parseFloat(variant.price) : NaN;
+    const basePrice = vPrice > 0 ? vPrice : (parseFloat(piece.price) || 0);
+    const itemTitle = (piece.title || "cecespieces original") + (vLabel ? ` — ${vLabel}` : "");
+
+    const priceC   = Math.round(basePrice * 100);
     const depositC = Math.round((parseFloat(piece.deposit) || 0) * 100);
     const isDeposit = depositC > 0 && (priceC === 0 || depositC < priceC);
     const amount = isDeposit ? depositC : priceC;
@@ -176,32 +251,33 @@ Deno.serve(async (req) => {
           unit_amount: amount,
           // Full purchases are booked against the piece's synced catalog product
           // (sync-stripe-catalog); the AMOUNT still comes from the database.
-          ...(!isDeposit && piece.stripe_product_id
+          ...(!isDeposit && !variant && piece.stripe_product_id
             ? { product: piece.stripe_product_id }
-            : { product_data: { name: isDeposit ? `Deposit — ${piece.title} (custom)` : (piece.title || "cecespieces original") } }),
+            : { product_data: { name: isDeposit ? `Deposit — ${itemTitle} (custom)` : itemTitle } }),
         },
       }],
       // Full purchases collect shipping now; deposits collect it with the balance.
       ...(isDeposit ? {} : { shipping_address_collection: { allowed_countries: ["US", "CA"] } }),
       success_url: `${SITE_URL}/?checkout=success${isDeposit ? "&kind=deposit" : ""}`,
       cancel_url: `${SITE_URL}/?checkout=cancel`,
-      metadata: { piece_id: String(piece_id), kind: isDeposit ? "deposit" : "full" },
-    }, piece.title || "cecespieces original");
+      metadata: { piece_id: String(piece_id), kind: isDeposit ? "deposit" : "full", ...(vLabel ? { variation: vLabel } : {}) },
+    }, itemTitle);
 
     // Log a pending order so it shows in the hub. For a deposit, record the
     // deposit paid and the balance still due so Cece can confirm & invoice it.
     const balanceStr = isDeposit ? ((priceC - depositC) / 100).toFixed(2) : null;
+    const optNote = vLabel ? `Option: ${vLabel} · ` : "";
     if (!isTest) db(`orders`, {
       method: "POST", headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
-        piece_id, piece_title: piece.title,
-        price: isDeposit ? piece.deposit : piece.price,
+        piece_id, piece_title: itemTitle,
+        price: isDeposit ? piece.deposit : (basePrice).toFixed(2),
         type: isDeposit ? "deposit" : "purchase",
         status: isDeposit ? "deposit-paid-pending" : "pending",
         source: "stripe checkout",
-        notes: isDeposit
+        notes: optNote + (isDeposit
           ? `Deposit $${piece.deposit} paid · balance $${balanceStr} due on confirmation · Stripe session ${session.id}`
-          : `Stripe session ${session.id}`,
+          : `Stripe session ${session.id}`),
       }),
     }).catch(() => {});
 

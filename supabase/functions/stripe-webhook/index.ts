@@ -6,6 +6,7 @@
 //  • CLASS (class_id): flips the pending enrollment + order to "confirmed" with
 //    the student's name/email and decrements the live class's remaining seats.
 // So the hub reflects every sale automatically.
+//  • DONATION / SPONSORSHIP: flips its pending order to "confirmed".
 //  • Every paid checkout: emails the buyer Stripe's receipt (see sendReceipt).
 //    Added 2026-10-22_2149 UTC.
 //
@@ -75,6 +76,13 @@ Deno.serve(async (req) => {
     const name  = s.customer_details?.name ?? s.metadata?.student_name ?? null;
     const email = s.customer_details?.email ?? s.metadata?.student_email ?? null;
     await sendReceipt(s, email);
+
+    // ─── Donation / sponsorship paid (added 2026-10-22_2245) ───
+    const kind = s.metadata?.kind;
+    if (kind === "donation" || kind === "sponsorship") {
+      await patch(`orders?notes=like.*${s.id}*`, { status: "confirmed", customer_name: name, customer_email: email });
+      return new Response("ok", { status: 200 });
+    }
 
     // ─── Class enrollment paid ───
     const classId = s.metadata?.class_id;
