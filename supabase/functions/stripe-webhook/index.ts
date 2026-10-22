@@ -6,6 +6,8 @@
 //  • CLASS (class_id): flips the pending enrollment + order to "confirmed" with
 //    the student's name/email and decrements the live class's remaining seats.
 // So the hub reflects every sale automatically.
+//  • Every paid checkout: emails the buyer Stripe's receipt (see sendReceipt).
+//    Added 2026-10-22_2149 UTC.
 //
 // Deploy (JWT check OFF — Stripe can't send a Supabase token):
 //   supabase functions deploy stripe-webhook --no-verify-jwt
@@ -41,6 +43,22 @@ const patch = (path: string, body: unknown) =>
   fetch(`${SUPABASE_URL}/rest/v1/${path}`, { method: "PATCH", headers: { ...hdr, Prefer: "return=minimal" }, body: JSON.stringify(body) });
 const get = (path: string) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: hdr }).then((r) => r.json());
 
+// Email the buyer Stripe's receipt (amount, item, card, receipt number). In
+// live mode Stripe sends a receipt whenever a payment's receipt_email is set,
+// whatever the Dashboard's "Customer emails" setting is. Skipped if the
+// payment already has that receipt email, so nobody gets two. Best-effort:
+// a failure here never blocks marking the order paid.
+async function sendReceipt(s: Stripe.Checkout.Session, email: string | null) {
+  const pi = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id;
+  if (!pi || !email || s.payment_status !== "paid") return;
+  try {
+    const intent = await stripe.paymentIntents.retrieve(pi, { expand: ["latest_charge"] });
+    const charge = intent.latest_charge as Stripe.Charge | null;
+    if (intent.receipt_email === email || charge?.receipt_email === email) return;
+    await stripe.paymentIntents.update(pi, { receipt_email: email });
+  } catch (e) { console.warn("receipt email failed", (e as Error)?.message); }
+}
+
 Deno.serve(async (req) => {
   const sig = req.headers.get("stripe-signature");
   const raw = await req.text();
@@ -56,6 +74,7 @@ Deno.serve(async (req) => {
     const s = event.data.object as Stripe.Checkout.Session;
     const name  = s.customer_details?.name ?? s.metadata?.student_name ?? null;
     const email = s.customer_details?.email ?? s.metadata?.student_email ?? null;
+    await sendReceipt(s, email);
 
     // ─── Class enrollment paid ───
     const classId = s.metadata?.class_id;

@@ -9,7 +9,14 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-10-21_2140 UTC
+  LAST UPDATED: 2026-10-22_2149 UTC
+  CHANGE: 2026-10-22_2149 — Delete inquiries/orders (Orders table + order
+          details) and delete contacts (CRM row + contact details). A deleted
+          contact is remembered (settings row 'crm_removed') so the automatic
+          order→CRM backfill doesn't add them back; "Add to CRM" still can.
+          My Collection → "Arrange & Layout": reorder pieces and categories
+          and pick the website shop's columns / centering / spacing (public
+          gallery row 'shop_layout', read by the website).
   CHANGE: 2026-10-21_2140 — Cash App / Venmo / Zelle: Payments page stores
           Venmo + Zelle details for the website's payment chooser (Cash App Pay
           is a Stripe checkout method); Website Orders gets an "Awaiting
@@ -817,8 +824,22 @@ tr:hover td{background:var(--bg)}
           <div class="cf" onclick="filterColl('sold',this)">Sold</div>
           <div class="cf" onclick="filterColl('hold',this)">On Hold</div>
         </div>
-        <button class="btn btn-amber btn-sm" id="coll-import" onclick="importCatalog()" style="margin-left:auto">📥 Import catalog</button>
+        <button class="btn btn-ghost btn-sm" id="coll-arrange-btn" onclick="toggleArrange()" style="margin-left:auto">↕ Arrange &amp; Layout</button>
+        <button class="btn btn-amber btn-sm" id="coll-import" onclick="importCatalog()">📥 Import catalog</button>
         <span style="font-size:.7rem;color:var(--muted)" id="coll-count">Loading...</span>
+      </div>
+      <!-- Website shop layout (shown in Arrange mode) -->
+      <div class="card" id="arrange-panel" style="display:none;margin-bottom:16px">
+        <div class="card-head"><span class="card-title">🧩 Website shop layout</span><a class="btn btn-ghost btn-sm" href="https://www.cecespieces.shop/" target="_blank" rel="noopener">View shop ↗</a></div>
+        <div class="card-body">
+        <div style="font-size:.74rem;color:var(--muted);line-height:1.6;margin-bottom:12px">Use the arrows to move pieces and categories — the website shop shows them in this order. Changes save automatically and appear on the site within about 30 seconds. Layout applies on computers; phones always show 1–2 columns.</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+          <div class="fg" style="margin:0"><label class="flabel">Columns</label><select class="finput" id="lay-cols" onchange="saveShopLayout()"><option value="">Auto (fit the screen)</option><option value="2">2 per row</option><option value="3">3 per row</option><option value="4">4 per row</option></select></div>
+          <div class="fg" style="margin:0"><label class="flabel">Alignment</label><select class="finput" id="lay-align" onchange="saveShopLayout()"><option value="">Full width</option><option value="center">Centered</option></select></div>
+          <div class="fg" style="margin:0"><label class="flabel">Spacing</label><select class="finput" id="lay-gap" onchange="saveShopLayout()"><option value="">Tight</option><option value="roomy">Roomy</option></select></div>
+        </div>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:10px" id="lay-status"></div>
+        </div>
       </div>
       <div class="gallery" id="coll-gallery"></div>
     </div>
@@ -2116,6 +2137,9 @@ tr:hover td{background:var(--bg)}
       <input class="finput" id="cd-comm-input" placeholder="Log a call, email, or note…" style="flex:1;margin:0">
       <button class="btn btn-teal btn-sm" onclick="logCommunication()">＋ Log</button>
     </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-ghost btn-sm" style="color:var(--coral)" onclick="deleteContact(currentContactId)">🗑 Delete contact</button>
+    </div>
   </div>
 </div>
 
@@ -2146,6 +2170,7 @@ tr:hover td{background:var(--bg)}
       <button class="btn btn-ghost btn-sm" id="om-crm-btn">➕ Add to CRM</button>
       <button class="btn btn-green btn-sm" id="om-confirm-btn">✓ Confirm</button>
       <button class="btn btn-amber btn-sm" id="om-sold-btn">Mark Sold</button>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--coral)" onclick="deleteOrder(currentOrderId)">🗑 Delete</button>
     </div>
   </div>
 </div>
@@ -2586,7 +2611,7 @@ function goPage(id, btn) {
   if (id === 'gallerywalk') renderGalleryWalk();
   if (id === 'payments')    loadPayHandles();
   if (id === 'orders')      renderOrders();
-  if (id === 'collection')  renderCollection();
+  if (id === 'collection')  { renderCollection(collFilter); loadShopLayout().then(()=>renderCollection(collFilter)); }
   if (id === 'crm')         renderCRM();
   if (id === 'payments')    refreshPayments();
   if (id === 'social')      renderSocial();
@@ -4450,18 +4475,101 @@ function hubCatKey(p){ return p.type==='Decorative Urn'?'Memorial Piece':(p.type
 function hubCatRank(t){ const i=HUB_CAT_ORDER.indexOf(t); return i<0?HUB_CAT_ORDER.length:i; }
 function renderCollection(filt='all') {
   const g = document.getElementById('coll-gallery'); if(!g) return;
+  if (arranging) { renderArrange(); return; }
   const list = filt==='all' ? pieces : pieces.filter(p=>(p.status||'available')===filt);
   document.getElementById('coll-count').textContent = list.length+' piece'+(list.length!==1?'s':'');
   if (!list.length) { g.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:48px;color:var(--muted);font-size:.76rem">No pieces found. <span style="color:var(--amber);cursor:pointer" onclick="openPublishModal()">Add one →</span></div>'; return; }
   const groups={};
-  list.forEach(p=>{ const k=hubCatKey(p); (groups[k]=groups[k]||[]).push(p); });
+  orderedPieces(list).forEach(p=>{ const k=hubCatKey(p); (groups[k]=groups[k]||[]).push(p); });
   const keys=Object.keys(groups).sort((a,b)=>hubCatRank(a)-hubCatRank(b)||a.localeCompare(b));
   g.innerHTML = keys.map(k=>`<div style="grid-column:1/-1;font-weight:700;font-size:.78rem;color:var(--ink);margin:14px 0 2px;padding-bottom:6px;border-bottom:1px solid var(--border)">${k} <span style="font-weight:400;color:var(--muted)">· ${groups[k].length}</span></div>`+groups[k].map(artCardHTML).join('')).join('');
 }
 
 function filterColl(f, btn) {
   document.querySelectorAll('#page-collection .cf').forEach(c=>c.classList.remove('active'));
-  btn.classList.add('active'); renderCollection(f);
+  btn.classList.add('active'); collFilter=f; renderCollection(f);
+}
+
+// ── ARRANGE & LAYOUT (website shop order + grid) ──
+// Saved to the public `gallery` table, row 'shop_layout':
+//   { order:[piece ids], cats:[categories], cols:''|2|3|4, align:''|'center', gap:''|'roomy' }
+// The website reads it on load and every 30 seconds. Never put anything secret here.
+let collFilter='all', arranging=false, shopLayout={}, _laySaveT=null;
+// The website's default category order (keep in sync with CAT_ORDER in cecethepieces/index.html).
+const SITE_CAT_ORDER=['Memorial Piece','Preservation','Resin Art','Statement Panel','Mixed Media','Painting','Seasonal Gift','Drawing','Sculpture','Photography'];
+async function loadShopLayout(){
+  try{ const r=await sb.query('gallery',{select:'*',eq:{id:'shop_layout'}}); shopLayout=(r&&r[0]&&r[0].data)||{}; }catch(e){ shopLayout={}; }
+}
+// Same rule as the website: placed pieces in Cece's order, unplaced (newer) ones first.
+function orderedPieces(list){
+  const pos=new Map((shopLayout.order||[]).map((id,i)=>[String(id),i]));
+  return list.map((p,i)=>({p,i,k:pos.has(String(p.id))?pos.get(String(p.id)):-1})).sort((a,b)=>(a.k-b.k)||(a.i-b.i)).map(x=>x.p);
+}
+function arrangeCats(){
+  const present=[...new Set(pieces.map(hubCatKey))];
+  const base=(shopLayout.cats&&shopLayout.cats.length)?shopLayout.cats:SITE_CAT_ORDER;
+  return [...base.filter(c=>present.includes(c)), ...present.filter(c=>!base.includes(c))];
+}
+function arrangeGroups(){
+  const g={}; orderedPieces(pieces).forEach(p=>{ const k=hubCatKey(p); (g[k]=g[k]||[]).push(p); });
+  return g;
+}
+function toggleArrange(){
+  arranging=!arranging;
+  document.getElementById('arrange-panel').style.display=arranging?'':'none';
+  document.getElementById('coll-arrange-btn').textContent=arranging?'✓ Done arranging':'↕ Arrange & Layout';
+  document.querySelectorAll('#page-collection .crm-filters').forEach(el=>el.style.visibility=arranging?'hidden':'');
+  if(arranging){
+    document.getElementById('lay-cols').value=shopLayout.cols?String(shopLayout.cols):'';
+    document.getElementById('lay-align').value=shopLayout.align||'';
+    document.getElementById('lay-gap').value=shopLayout.gap||'';
+    document.getElementById('lay-status').textContent='';
+  }
+  renderCollection(collFilter);
+}
+function renderArrange(){
+  const g=document.getElementById('coll-gallery');
+  const cats=arrangeCats(), groups=arrangeGroups();
+  document.getElementById('coll-count').textContent=pieces.length+' piece'+(pieces.length!==1?'s':'');
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const btn=(label,title,fn,dis)=>`<button class="btn btn-ghost btn-xs" title="${title}" ${dis?'disabled style="opacity:.3"':''} onclick="event.stopPropagation();${fn}">${label}</button>`;
+  g.innerHTML=cats.map((c,ci)=>`<div style="grid-column:1/-1;display:flex;align-items:center;gap:6px;font-weight:700;font-size:.78rem;color:var(--ink);margin:14px 0 2px;padding-bottom:6px;border-bottom:1px solid var(--border)">${esc(c)} <span style="font-weight:400;color:var(--muted)">· ${(groups[c]||[]).length}</span><span style="margin-left:auto;display:flex;gap:4px">${btn('▲','Move category up',`moveCat(${ci},-1)`,ci===0)}${btn('▼','Move category down',`moveCat(${ci},1)`,ci===cats.length-1)}</span></div>`
+    +(groups[c]||[]).map((p,i,arr)=>`<div class="art-card" style="cursor:default">
+      <div class="art-thumb">${p.image?`<img src="${esc(p.image)}" alt="${esc(p.title)}">`:'<span style="font-size:2rem;opacity:.2">🖼</span>'}<div class="art-status-badge" style="background:var(--ink);color:#fff">#${i+1}</div></div>
+      <div class="art-info"><div class="art-title">${esc(p.title)}</div>
+      <div style="display:flex;gap:4px;margin-top:6px">${btn('⇤','Move to first',`movePiece('${p.id}',-999)`,i===0)}${btn('◀','Move earlier',`movePiece('${p.id}',-1)`,i===0)}${btn('▶','Move later',`movePiece('${p.id}',1)`,i===arr.length-1)}</div></div></div>`).join('')).join('');
+}
+function rebuildOrder(cats, groups){
+  shopLayout.cats=cats;
+  shopLayout.order=cats.flatMap(c=>(groups[c]||[]).map(p=>p.id));
+}
+function movePiece(id, dir){
+  const cats=arrangeCats(), groups=arrangeGroups();
+  const p=pieces.find(x=>String(x.id)===String(id)); if(!p) return;
+  const arr=groups[hubCatKey(p)], i=arr.indexOf(p);
+  const j=dir===-999?0:Math.max(0,Math.min(arr.length-1,i+dir)); if(i===j) return;
+  arr.splice(i,1); arr.splice(j,0,p);
+  rebuildOrder(cats, groups); renderArrange(); saveShopLayout();
+}
+function moveCat(ci, dir){
+  const cats=arrangeCats(), groups=arrangeGroups(), cj=ci+dir;
+  if(cj<0||cj>=cats.length) return;
+  [cats[ci],cats[cj]]=[cats[cj],cats[ci]];
+  rebuildOrder(cats, groups); renderArrange(); saveShopLayout();
+}
+// Debounced so a run of arrow clicks becomes one save.
+function saveShopLayout(){
+  const st=document.getElementById('lay-status');
+  shopLayout.cols=document.getElementById('lay-cols').value?+document.getElementById('lay-cols').value:'';
+  shopLayout.align=document.getElementById('lay-align').value;
+  shopLayout.gap=document.getElementById('lay-gap').value;
+  if(!shopLayout.order){ const cats=arrangeCats(); rebuildOrder(cats, arrangeGroups()); }
+  st.textContent='Saving…';
+  clearTimeout(_laySaveT);
+  _laySaveT=setTimeout(async()=>{
+    try{ await sb.upsert('gallery',{ id:'shop_layout', data:shopLayout, updated_at:new Date().toISOString() },'id'); st.textContent='✅ Saved — live on your website shop.'; }
+    catch(e){ st.textContent='⚠️ Could not save — check your connection and try again.'; }
+  },600);
 }
 
 // ── PIECE MODAL ──
@@ -4733,13 +4841,42 @@ async function syncOrderToCRM(o, opts={}){
     return c;
   }catch(e){ console.warn('syncOrderToCRM failed',e); return null; }
 }
+// Contacts deleted on purpose. Kept in settings row 'crm_removed' so the
+// backfill below doesn't re-create them from their old website orders.
+let crmRemoved=null;
+async function loadCrmRemoved(){
+  if(crmRemoved) return crmRemoved;
+  try{ const r=await sb.query('settings',{select:'*',eq:{id:'crm_removed'}}); crmRemoved=((r&&r[0]&&r[0].data&&r[0].data.emails)||[]); }
+  catch(e){ crmRemoved=[]; }
+  return crmRemoved;
+}
+async function deleteContact(id){
+  const c=contacts.find(x=>x.id===id); if(!c) return;
+  if(!confirm(`Delete ${c.name||'this contact'}? Their website orders stay in Orders. This can't be undone.`)) return;
+  try{
+    await sb.delete('contacts', id);
+    contacts=contacts.filter(x=>x.id!==id);
+    const email=(c.email||'').toLowerCase().trim();
+    if(email){
+      const list=await loadCrmRemoved();
+      if(!list.includes(email)){ list.push(email); try{ await sb.upsert('settings',{ id:'crm_removed', data:{ emails:list } },'id'); }catch(e){} }
+    }
+    if(currentContactId===id) closeContactDetail();
+    renderCRM(crmFilter);
+    const dc=document.getElementById('ds-contacts'); if(dc) dc.textContent=contacts.length;
+    const cc=document.getElementById('contactCountCap'); if(cc) cc.textContent=contacts.length;
+    addActivity(`🗑 Deleted contact <strong>${c.name||c.email||''}</strong>`);
+    showToast('Contact deleted.','');
+  }catch(e){ showToast('Error deleting contact','t-error'); }
+}
 // Backfill CRM from every website order (once per unique buyer email).
 let _crmSyncing=false;
 async function syncAllOrdersToCRM(){
   if(_crmSyncing||!CONFIGURED) return; _crmSyncing=true;
   try{
     let added=false;
-    for(const o of orders){ const email=(o.customer_email||'').trim(); if(email && !findContactByEmail(email)){ await syncOrderToCRM(o,{silent:true}); added=true; } }
+    const removed=await loadCrmRemoved();
+    for(const o of orders){ const email=(o.customer_email||'').trim(); if(email && !findContactByEmail(email) && !removed.includes(email.toLowerCase())){ await syncOrderToCRM(o,{silent:true}); added=true; } }
     if(added){ renderCRM(crmFilter); const dc=document.getElementById('ds-contacts'); if(dc) dc.textContent=contacts.length; }
   } finally { _crmSyncing=false; }
 }
@@ -4795,7 +4932,7 @@ function renderCRM(filt='all') {
     <td><div class="heat"><div class="heat-dot h-${c.heat}"></div><span style="font-size:.7rem;text-transform:capitalize">${c.heat}</span></div></td>
     <td style="font-size:.7rem;color:var(--muted)">${c.last_out||'—'}</td>
     <td style="font-size:.7rem;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.notes||'—'}</td>
-    <td><button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openContactDetail('${c.id}')">View</button><button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="event.stopPropagation();logContactOut('${c.id}')">Log Outreach</button></td>
+    <td><button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openContactDetail('${c.id}')">View</button><button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="event.stopPropagation();logContactOut('${c.id}')">Log Outreach</button><button class="btn btn-ghost btn-xs" style="margin-left:4px;color:var(--coral)" title="Delete" onclick="event.stopPropagation();deleteContact('${c.id}')">🗑</button></td>
   </tr>`).join('');
 }
 
@@ -5814,9 +5951,25 @@ function renderOrdersTable() {
         <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openOrderModal('${o.id}')">View</button>
         ${o.status==='awaiting-payment'?`<button class="btn btn-green btn-xs" style="margin-left:4px" onclick="event.stopPropagation();markOrderPaid('${o.id}')">💵 Mark paid</button>`:`<button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="event.stopPropagation();confirmOrder('${o.id}')">✓ Confirm</button>`}
         <button class="btn btn-amber btn-xs" style="margin-left:4px" onclick="event.stopPropagation();markPieceSoldFromOrder('${o.id}')">Mark Sold</button>
+        <button class="btn btn-ghost btn-xs" style="margin-left:4px;color:var(--coral)" title="Delete" onclick="event.stopPropagation();deleteOrder('${o.id}')">🗑</button>
       </td>
     </tr>`;
   }).join('');
+}
+
+// Delete an order / inquiry. The piece itself and the customer's CRM contact
+// are left alone.
+async function deleteOrder(id) {
+  const o = orders.find(x=>x.id===id); if(!o) return;
+  const what = (o.type||'inquiry')==='inquiry' ? 'inquiry' : 'order';
+  if (!confirm(`Delete this ${what}${o.customer_name?' from '+o.customer_name:''}? This can't be undone.`)) return;
+  try {
+    await sb.delete('orders', id);
+    orders = orders.filter(x=>x.id!==id);
+    if (currentOrderId===id) closeOrderModal();
+    renderOrders();
+    showToast(what==='inquiry'?'Inquiry deleted.':'Order deleted.','');
+  } catch(e) { showToast('Error deleting '+what,'t-error'); }
 }
 
 // ── ORDER / BUYER DETAILS ──
