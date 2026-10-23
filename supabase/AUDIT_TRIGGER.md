@@ -2,3 +2,4 @@
 - 2026-10-21_2330 UTC — final go-live audit
 - 2026-10-21_2340 UTC — audit v2
 - 2026-10-21_2355 UTC — audit incl. cecespieces.shop
+- 2026-10-23_0040 UTC — audit: Batches 1-4 live?

@@ -1,6 +1,7 @@
 # ────────────────────────────────────────────────────────────────
 # FILE: go-live-audit_2026-10-21_2330.yml
 # CREATED: 2026-10-21_2330 UTC
+# UPDATED: 2026-10-23_0040 UTC — section 6 checks the Batch 1-4 features are live.
 # WHY: Read-only "ready to take orders?" audit — live sites, database &
 #      security rules, payment functions, auto-sync, and the Stripe account.
 #      Makes NO changes (GET requests + SELECT queries only).
@@ -86,3 +87,26 @@ jobs:
           echo "payment methods (default config):"
           ST 'payment_method_configurations?limit=5' | jq -r '.data[]? | select(.is_default==true) | to_entries[] | select(.value|type=="object" and has("available")) | "  \(.key): available=\(.value.available) on=\(.value.display_preference.value)"' | grep -E "card|apple_pay|google_pay|cashapp|link|klarna|affirm|afterpay"
           echo "last 5 charges: $(ST 'charges?limit=5' | jq -c '[.data[]? | {amount: (.amount/100), status, paid, refunded, created: (.created|todate)}]')"
+
+          echo "=================== 6. NEW FEATURES (Batches 1-4, added 2026-10-23_0040 UTC)"
+          chk(){ # url, then markers; prints which markers the live page has
+            rm -f /tmp/f.html; c=$(curl -s -L --compressed -o /tmp/f.html -w '%{http_code}' --max-time 20 "$1"); shift
+            out=""; for m in "$@"; do if grep -q "$m" /tmp/f.html 2>/dev/null; then out="$out ✅$m"; else out="$out ❌$m"; fi; done; echo "HTTP $c |$out"; }
+          echo "website www.cecespieces.shop: $(chk https://www.cecespieces.shop/ fetchShopLayout 'data-edit=' scene-list lb-options supportModal sms-opt)"
+          echo "website main on GitHub:       $(chk https://raw.githubusercontent.com/modom123/cecethepieces/main/index.html fetchShopLayout 'data-edit=' scene-list lb-options supportModal sms-opt)"
+          echo "hub cece-hub.vercel.app/cece-hub.html: $(chk https://cece-hub.vercel.app/cece-hub.html arrange-panel deleteContact page-siteeditor page-support setVarPrice aiEditOptions pay-sms)"
+          echo "--- deployed checkout version (probes that create nothing)"
+          D=$(curl -s "${A[@]}" -H 'Content-Type: application/json' -X POST "$SB/functions/v1/create-checkout" -d '{"donation":{"amount":0.5}}')
+          echo "donation probe: $D  → $(echo "$D" | grep -q 'between \$1' && echo '✅ NEW checkout (donations, sponsorships, variation prices, texts)' || echo '❌ OLD checkout still deployed — run Stripe — go live')"
+          echo "sponsor probe:  $(curl -s "${A[@]}" -H 'Content-Type: application/json' -X POST "$SB/functions/v1/create-checkout" -d '{"sponsor":99}')"
+          echo "--- function deploy times"
+          curl -s -H "Authorization: Bearer $T" "https://api.supabase.com/v1/projects/$PROJECT_REF/functions" | jq -r '.[]? | "  \(.slug) v\(.version) updated \((.updated_at/1000|floor|todate)? // .updated_at)"'
+          echo "--- database columns the new features use (no new migration needed if all ✅)"
+          COLS=$(SQL "select table_name||'.'||column_name c from information_schema.columns where table_schema='public' and table_name in ('pieces','orders','gallery','settings','contacts')" | jq -r '.[]?.c')
+          for c in pieces.variations pieces.for_rent pieces.rent_day pieces.rent_weekend pieces.rent_week pieces.rent_event pieces.rent_deposit pieces.deposit orders.type orders.status orders.notes orders.customer_email gallery.id gallery.data gallery.updated_at settings.id settings.data; do
+            echo "$COLS" | grep -qx "$c" && printf '  ✅ %s\n' "$c" || printf '  ❌ %s MISSING\n' "$c"; done
+          echo "--- settings rows used by the new features (public gallery table)"
+          for id in shop_layout site_content support pay; do echo "  $id: $(curl -s "${A[@]}" "$SB/rest/v1/gallery?id=eq.$id&select=data" | jq -c 'if length>0 then (.[0].data|keys) else "not saved yet" end')"; done
+          echo "--- removed-contacts list (team-only settings row): $(SQL "select coalesce(jsonb_array_length(data->'emails'),0) as n from settings where id='crm_removed'" | jq -c '.[0].n // "none yet"')"
+          echo "--- texting: Twilio settings stored = $(SQL "select count(*) n from private.app_secrets where name like 'TWILIO_%'" | jq -r '.[0].n')/3 · website toggle = $(curl -s "${A[@]}" "$SB/rest/v1/gallery?id=eq.pay&select=data" | jq -r '.[0].data.sms // false')"
+          echo "--- Stripe key in database last changed: $(SQL "select updated_at from private.app_secrets where name='STRIPE_SECRET_KEY'" | jq -r '.[0].updated_at')"
