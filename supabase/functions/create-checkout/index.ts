@@ -74,6 +74,10 @@ Deno.serve(async (req) => {
     // _test: the go-live workflow's smoke test — create the Stripe session but
     // don't log an order, so tests never show up in the hub as real orders.
     const isTest = body._test === true;
+    // Text confirmations (added 2026-10-23_0010): if the buyer ticked "text me",
+    // Checkout asks for their phone and the webhook texts them after payment.
+    const smsOn = body.sms_opt_in === true;
+    const smsMeta = (item: string): Record<string, string> => smsOn ? { sms: "yes", item: item.slice(0, 100) } : {};
 
     // ── PROBE: POST {"_ping":true} — reports key shape + raw Stripe reachability
     if (body._ping) {
@@ -119,7 +123,8 @@ Deno.serve(async (req) => {
           customer_email: email,
           success_url: `${SITE_URL}/?checkout=success&type=donation`,
           cancel_url: `${SITE_URL}/?checkout=cancel&type=donation`,
-          metadata: { kind: "donation", donor_name: name, note },
+          metadata: { kind: "donation", donor_name: name, note, ...smsMeta("your donation") },
+          ...(smsOn ? { phone_number_collection: { enabled: true } } : {}),
         });
         if (!isTest) db(`orders`, {
           method: "POST", headers: { Prefer: "return=minimal" },
@@ -145,7 +150,8 @@ Deno.serve(async (req) => {
         customer_email: email,
         success_url: `${SITE_URL}/?checkout=success&type=sponsor`,
         cancel_url: `${SITE_URL}/?checkout=cancel&type=sponsor`,
-        metadata: { kind: "sponsorship", package: String(pk.name || ""), sponsor_name: name, note },
+        metadata: { kind: "sponsorship", package: String(pk.name || ""), sponsor_name: name, note, ...smsMeta(`the ${pk.name || ""} sponsorship`) },
+        ...(smsOn ? { phone_number_collection: { enabled: true } } : {}),
         ...(monthly ? { subscription_data: { metadata: { kind: "sponsorship", package: String(pk.name || "") } } } : {}),
       });
       if (!isTest) db(`orders`, {
@@ -186,7 +192,8 @@ Deno.serve(async (req) => {
         customer_email: student_email || undefined,
         success_url: `${SITE_URL}/?checkout=success&type=class`,
         cancel_url: `${SITE_URL}/?checkout=cancel&type=class`,
-        metadata: { class_id: String(class_id), student_name: student_name || "", student_email: student_email || "" },
+        metadata: { class_id: String(class_id), student_name: student_name || "", student_email: student_email || "", ...smsMeta(String(cls.title || "your class")) },
+        ...(smsOn ? { phone_number_collection: { enabled: true } } : {}),
       }, `${cls.title} — cecespieces Academy`);
 
       // Pending enrollment (so the hub roster + student classroom see it) …
@@ -260,7 +267,8 @@ Deno.serve(async (req) => {
       ...(isDeposit ? {} : { shipping_address_collection: { allowed_countries: ["US", "CA"] } }),
       success_url: `${SITE_URL}/?checkout=success${isDeposit ? "&kind=deposit" : ""}`,
       cancel_url: `${SITE_URL}/?checkout=cancel`,
-      metadata: { piece_id: String(piece_id), kind: isDeposit ? "deposit" : "full", ...(vLabel ? { variation: vLabel } : {}) },
+      metadata: { piece_id: String(piece_id), kind: isDeposit ? "deposit" : "full", ...(vLabel ? { variation: vLabel } : {}), ...smsMeta(isDeposit ? `the deposit for ${itemTitle}` : itemTitle) },
+      ...(smsOn ? { phone_number_collection: { enabled: true } } : {}),
     }, itemTitle);
 
     // Log a pending order so it shows in the hub. For a deposit, record the

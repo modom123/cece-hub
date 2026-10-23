@@ -88,6 +88,24 @@ jobs:
           if [ "$CODE" -ge 300 ]; then echo "::error::Could not store the Stripe key ($CODE): $(jq -r '.message // .' out.json)"; exit 1; fi
           rm -f out.json; echo "Stripe key + site URL stored."
 
+      - name: Store Twilio settings for text confirmations (optional)
+        # Added 2026-10-23_0010 UTC. Skipped unless all three repo secrets exist.
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
+        run: |
+          if [ -z "$TWILIO_ACCOUNT_SID" ] || [ -z "$TWILIO_AUTH_TOKEN" ] || [ -z "$TWILIO_FROM" ]; then
+            echo "Twilio secrets not set — text confirmations stay off."; exit 0
+          fi
+          SID="$(printf %s "$TWILIO_ACCOUNT_SID" | tr -d '[:space:]')"; TOK="$(printf %s "$TWILIO_AUTH_TOKEN" | tr -d '[:space:]')"; FROM="$(printf %s "$TWILIO_FROM" | tr -d '[:space:]')"
+          BODY=$(jq -n --arg a "$SID" --arg b "$TOK" --arg c "$FROM" '{query: ("insert into private.app_secrets(name,value) values (\u0027TWILIO_ACCOUNT_SID\u0027, $t$" + $a + "$t$), (\u0027TWILIO_AUTH_TOKEN\u0027, $t$" + $b + "$t$), (\u0027TWILIO_FROM\u0027, $t$" + $c + "$t$) on conflict (name) do update set value = excluded.value, updated_at = now();")}')
+          CODE=$(curl -sS -o out.json -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$BODY")
+          if [ "$CODE" -ge 300 ]; then echo "::error::Could not store the Twilio settings ($CODE)"; exit 1; fi
+          rm -f out.json; echo "Twilio settings stored — text confirmations ready."
+
       - name: Deploy the payment functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

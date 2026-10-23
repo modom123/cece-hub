@@ -9,7 +9,13 @@
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-10-22_2245 UTC
+  LAST UPDATED: 2026-10-23_0010 UTC
+  CHANGE: 2026-10-23_0010 — Text confirmations: Payments → "Offer text
+          confirmations" (public gallery row 'pay', data.sms) turns on the
+          website's opt-in box; texts go out from the Stripe webhook via
+          Twilio once its repo secrets are set and "Stripe — go live" runs.
+          Piece details: ✨ AI helper — describe option/price changes in plain
+          words, preview, then Apply & save.
   CHANGE: 2026-10-22_2245 — Variations get a name + optional price (customers
           pick one on the website; checkout charges it). New "Donations &
           Sponsors" page (public gallery row 'support'): donation amounts &
@@ -901,6 +907,11 @@ tr:hover td{background:var(--bg)}
           <div class="fg"><label class="flabel">Venmo username</label><input class="finput" id="pay-venmo" placeholder="@cecespieces"></div>
           <div class="fg"><label class="flabel">Zelle email or phone</label><input class="finput" id="pay-zelle" placeholder="you@email.com or (555) 000-0000"></div>
           <div class="fg"><label class="flabel">Name on Zelle</label><input class="finput" id="pay-zelle-name" placeholder="Cece …"></div>
+        </div>
+        <!-- Text confirmations (added 2026-10-23_0010 UTC) -->
+        <div style="border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin:4px 0 10px">
+          <label style="display:flex;align-items:center;gap:7px;font-size:.78rem;font-weight:600;cursor:pointer"><input type="checkbox" id="pay-sms"> 📱 Offer text confirmations</label>
+          <div style="font-size:.68rem;color:var(--muted);line-height:1.6;margin-top:5px">Adds an opt-in “Text me my confirmation” box to checkout. Buyers who tick it enter their mobile number on the Stripe page and get a text once they've paid. Needs a Twilio account (about $0.01/text + ~$2/month number): add the repo secrets <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code> and <code>TWILIO_FROM</code> (your Twilio number, e.g. +12065550123), then run “Stripe — go live”. Until then no texts are sent.</div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button class="btn btn-amber btn-sm" onclick="savePayHandles()">💾 Save payment options</button><span id="pay-handles-status" style="font-size:.7rem;color:var(--muted)"></span></div>
       </div>
@@ -2248,6 +2259,12 @@ tr:hover td{background:var(--bg)}
             <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">➕ Add<input type="file" accept="image/*" multiple style="display:none" onchange="addVariationFiles(event,'pm')"></label>
             <button type="button" class="btn btn-ghost btn-sm" onclick="autoGenVariations('pm')">✨ Auto-color</button>
             <button type="button" class="btn btn-amber btn-sm" onclick="savePieceVariations()">💾 Save</button>
+          </div>
+          <!-- AI helper for options & prices (added 2026-10-23_0010 UTC) -->
+          <div style="margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:9px 10px">
+            <div style="font-size:.68rem;font-weight:700;margin-bottom:5px">✨ AI helper <span style="font-weight:400;color:var(--muted)">— tell it what to change in plain words</span></div>
+            <div style="display:flex;gap:6px"><input class="finput" id="pm-ai-ask" style="flex:1;margin:0;font-size:.74rem" placeholder='e.g. "Add Round for $140 and Heart for $160, Square is $20 less than the base"' onkeydown="if(event.key==='Enter')aiEditOptions()"><button type="button" class="btn btn-teal btn-sm" id="pm-ai-btn" onclick="aiEditOptions()">Suggest</button></div>
+            <div id="pm-ai-preview"></div>
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px">
@@ -3648,6 +3665,55 @@ function removeVariation(which, i) {
   renderVarStrip(which);
 }
 
+// ── AI HELPER: options & prices (added 2026-10-23_0010 UTC) ──
+// Cece describes the change ("add a Heart shape for $160", "raise everything
+// 10%"); Claude returns the new base price + option list as JSON; she sees a
+// preview and nothing is saved until she clicks Apply & save. New options
+// reuse the main photo until she adds one of their own.
+let aiOptPlan = null;
+async function aiEditOptions(){
+  const p = pieces.find(x=>x.id===currentPieceId); if(!p) return;
+  const ask = document.getElementById('pm-ai-ask').value.trim();
+  if(!ask){ showToast('Type what you want to change first.','t-error'); return; }
+  const btn = document.getElementById('pm-ai-btn'), prev = document.getElementById('pm-ai-preview');
+  const cur = { title:p.title, category:p.type, base_price:document.getElementById('pm-e-price').value.trim()||p.price||'',
+    options:pmVariationsBuf.map((v,i)=>({ index:i, label:v.label, price:v.price||'' })) };
+  btn.disabled=true; btn.textContent='Thinking…'; prev.innerHTML='';
+  try{
+    const txt = await askClaude({ maxTokens:1200,
+      system:'You edit the purchase options of one handmade art piece for the artist Cece. Options are variations a customer picks (shape, size, colorway). An option with an empty price costs the base price. Apply exactly the change Cece asks for and keep everything else as it is. Prices are plain numbers in US dollars (no $), rounded to whole dollars unless she gives cents. Reply with ONLY JSON: {"base_price":"<new base price, or the same>","options":[{"index":<existing index, or null for a new option>,"label":"<name>","price":"<price or empty>"}],"summary":"<one short sentence of what changed>"}. List every option that should exist afterwards, in order; leave out ones she asked to remove.',
+      messages:[{ role:'user', content:`Current piece:\n${JSON.stringify(cur)}\n\nCece's request: ${ask}` }] });
+    const plan = parseJsonLoose(txt);
+    if(!plan || !Array.isArray(plan.options)) throw new Error('The AI reply wasn’t in the expected format — try rewording.');
+    const num = v => { const n=String(v==null?'':v).replace(/[^0-9.]/g,''); return n && parseFloat(n)>0 ? String(+parseFloat(n).toFixed(2)) : ''; };
+    aiOptPlan = { base: num(plan.base_price) || cur.base_price, summary:String(plan.summary||''),
+      options: plan.options.map(o=>({ index:(Number.isInteger(o.index)&&pmVariationsBuf[o.index])?o.index:null, label:String(o.label||'').slice(0,60)||'Option', price:num(o.price) })) };
+    const esc = v => String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const money = v => v ? '$'+Number(v).toLocaleString() : '<span style="color:var(--muted)">base price</span>';
+    prev.innerHTML = `<div style="margin-top:8px;font-size:.72rem;line-height:1.6">
+      <div style="color:var(--ink2);margin-bottom:4px">${esc(aiOptPlan.summary)}</div>
+      <div>Base price: <strong>${money(aiOptPlan.base)}</strong>${aiOptPlan.base!==cur.base_price?` <span style="color:var(--muted)">(was ${money(cur.base_price)})</span>`:''}</div>
+      ${aiOptPlan.options.map(o=>`<div>• ${esc(o.label)} — ${money(o.price)}${o.index==null?' <span style="color:var(--amber)">new · uses the main photo</span>':''}</div>`).join('')||'<div>• (no options)</div>'}
+      <div style="display:flex;gap:6px;margin-top:7px"><button type="button" class="btn btn-amber btn-xs" onclick="applyAiOptions()">✅ Apply &amp; save</button><button type="button" class="btn btn-ghost btn-xs" onclick="aiOptPlan=null;document.getElementById('pm-ai-preview').innerHTML=''">Discard</button></div></div>`;
+  }catch(e){
+    prev.innerHTML = `<div style="margin-top:8px;font-size:.72rem;color:var(--coral)">${e.code==='NO_KEY'?'Add your Anthropic key in Connections to use the AI helper.':String(e.message||e)}</div>`;
+  }
+  btn.disabled=false; btn.textContent='Suggest';
+}
+async function applyAiOptions(){
+  const p = pieces.find(x=>x.id===currentPieceId); if(!p || !aiOptPlan) return;
+  const vars = aiOptPlan.options.map(o=>{ const src = o.index!=null ? pmVariationsBuf[o.index] : { image:p.image };
+    return { image:src.image, label:o.label, ...(o.price?{price:o.price}:{}) }; }).filter(v=>v.image);
+  const upd = { variations: vars, ...(aiOptPlan.base && aiOptPlan.base!==String(p.price||'') ? { price: aiOptPlan.base } : {}) };
+  try{
+    await sb.update('pieces', p.id, upd);
+    Object.assign(p, upd); pmVariationsBuf = vars.slice(); renderVarStrip('pm');
+    if(upd.price) document.getElementById('pm-e-price').value = upd.price;
+    aiOptPlan=null; document.getElementById('pm-ai-preview').innerHTML=''; document.getElementById('pm-ai-ask').value='';
+    renderCollection(collFilter); showToast('✨ Options & prices saved — live on your website.','t-success');
+  }catch(e){ showToast('Error saving the changes','t-error'); }
+}
+
 async function savePieceVariations() {
   const p = pieces.find(x => x.id === currentPieceId); if (!p) return;
   try {
@@ -4475,11 +4541,12 @@ async function loadPayHandles(){
     document.getElementById('pay-venmo').value=d.venmo||'';
     document.getElementById('pay-zelle').value=d.zelle||'';
     document.getElementById('pay-zelle-name').value=d.zelle_name||'';
+    document.getElementById('pay-sms').checked=!!d.sms;
   }catch(e){ document.getElementById('pay-handles-status').textContent='Run the database setup SQL first (stripe_catalog_sync_2026-10-21_2120.sql).'; }
 }
 async function savePayHandles(){
   const venmo=document.getElementById('pay-venmo').value.trim().replace(/^@/,'');
-  const data={ venmo, zelle:document.getElementById('pay-zelle').value.trim(), zelle_name:document.getElementById('pay-zelle-name').value.trim() };
+  const data={ venmo, zelle:document.getElementById('pay-zelle').value.trim(), zelle_name:document.getElementById('pay-zelle-name').value.trim(), sms:document.getElementById('pay-sms').checked };
   const st=document.getElementById('pay-handles-status');
   try{ await sb.upsert('gallery',{ id:'pay', data, updated_at:new Date().toISOString() },'id'); st.textContent='✅ Saved — live on your website checkout.'; showToast('📲 Payment options saved','t-success'); }
   catch(e){ st.textContent='⚠️ Could not save — run the database setup SQL first.'; }

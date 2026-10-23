@@ -7,7 +7,8 @@
 //    the student's name/email and decrements the live class's remaining seats.
 // So the hub reflects every sale automatically.
 //  • DONATION / SPONSORSHIP: flips its pending order to "confirmed".
-//  • Every paid checkout: emails the buyer Stripe's receipt (see sendReceipt).
+//  • Every paid checkout: emails the buyer Stripe's receipt (see sendReceipt),
+//    and texts them if they opted in and Twilio is set up (sendSmsConfirmation).
 //    Added 2026-10-22_2149 UTC.
 //
 // Deploy (JWT check OFF — Stripe can't send a Supabase token):
@@ -60,6 +61,30 @@ async function sendReceipt(s: Stripe.Checkout.Session, email: string | null) {
   } catch (e) { console.warn("receipt email failed", (e as Error)?.message); }
 }
 
+// Text the buyer a confirmation when they opted in at checkout (metadata
+// sms = "yes") and Twilio is set up (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
+// TWILIO_FROM in the locked settings table or Edge Function secrets).
+// Best-effort: no Twilio settings, or a Twilio error, never blocks the order.
+// Added 2026-10-23_0010 UTC.
+async function sendSmsConfirmation(s: Stripe.Checkout.Session, name: string | null) {
+  const phone = s.customer_details?.phone;
+  if (s.metadata?.sms !== "yes" || !phone) return;
+  try {
+    const sid = await appConfig("TWILIO_ACCOUNT_SID"), token = await appConfig("TWILIO_AUTH_TOKEN"), from = await appConfig("TWILIO_FROM");
+    if (!sid || !token || !from) return;
+    const amt = s.amount_total ? `$${(s.amount_total / 100).toFixed(2)}` : "your payment";
+    const first = (name || "").trim().split(/\s+/)[0];
+    const monthly = s.mode === "subscription" ? " (monthly)" : "";
+    const body = `cecespieces: Thank you${first ? ", " + first : ""}! ${amt}${monthly} for ${s.metadata?.item || "your order"} is confirmed. Cece will be in touch soon. Reply STOP to opt out.`;
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+      method: "POST",
+      headers: { Authorization: "Basic " + btoa(`${sid}:${token}`), "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ From: from, To: phone, Body: body }),
+    });
+    if (!r.ok) console.warn("twilio", r.status, (await r.text()).slice(0, 200));
+  } catch (e) { console.warn("sms failed", (e as Error)?.message); }
+}
+
 Deno.serve(async (req) => {
   const sig = req.headers.get("stripe-signature");
   const raw = await req.text();
@@ -76,6 +101,7 @@ Deno.serve(async (req) => {
     const name  = s.customer_details?.name ?? s.metadata?.student_name ?? null;
     const email = s.customer_details?.email ?? s.metadata?.student_email ?? null;
     await sendReceipt(s, email);
+    await sendSmsConfirmation(s, name);
 
     // ─── Donation / sponsorship paid (added 2026-10-22_2245) ───
     const kind = s.metadata?.kind;
