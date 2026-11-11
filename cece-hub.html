@@ -4,12 +4,23 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>cecepieceshub — Business Hub</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
 <!--
   ────────────────────────────────────────────────────────────────
   FILE: index.html  (cecepieceshub — Business Hub)
-  LAST UPDATED: 2026-10-23_0010 UTC
+  LAST UPDATED: 2026-11-11_2250 UTC
+  CHANGE: 2026-11-11_2250 — QA fixes. SAVES: when the sign-in lapsed (tablet left
+          open, keep-alive paused) the hub fell back to the public key, Supabase
+          ignored the change, and the hub still said "✅ saved" — prices, piece edits,
+          shop layout/arrange, Edit Website, Donations & Sponsors, deleting contacts
+          and inquiries all failed that way. Now every write refreshes the sign-in
+          first, never uses the public key, retries once, counts 0 rows as a failure
+          and shows the sign-in box over the hub (nothing on screen is lost).
+          PAYMENTS: "Create a Payment Link" made a fake buy.stripe.com address; it now
+          creates a real Stripe checkout (same as the website's Buy Now) with a QR code
+          and "Open checkout here" for in-person sales. Piece window: 💳 Sell now.
   CHANGE: 2026-10-23_0010 — Text confirmations: Payments → "Offer text
           confirmations" (public gallery row 'pay', data.sms) turns on the
           website's opt-in box; texts go out from the Stripe webhook via
@@ -927,16 +938,21 @@ tr:hover td{background:var(--bg)}
           <div class="card">
             <div class="card-head"><span class="card-title">💳 Create a Payment Link</span></div>
             <div class="card-body">
-              <p style="font-size:.73rem;color:var(--muted);margin-bottom:16px">Generate a payment link for any piece. Send it via text, email, or DM.</p>
+              <p style="font-size:.73rem;color:var(--muted);margin-bottom:16px">A real Stripe checkout for any piece: card, Apple Pay, Google Pay, Cash App, Klarna. <b>Text or email it</b>, or <b>sell in person</b>: the buyer scans the QR code with their phone, or you open checkout on this device and hand it over. The piece is marked sold automatically when they pay.</p>
               <div class="fg"><label class="flabel">Select a Piece</label><select class="fsel" id="pay-piece-sel"><option value="">Choose a piece...</option></select></div>
-              <div class="fg"><label class="flabel">Price (USD)</label><input class="finput" id="pay-price" placeholder="e.g. 450"></div>
+              <div class="fg"><label class="flabel">Price (USD) — from the piece</label><input class="finput" id="pay-price" placeholder="pick a piece" readonly><div style="font-size:.64rem;color:var(--muted);margin-top:3px">Checkout charges the piece's saved price. To charge a different price, change it first (Collection → the piece → Save details).</div></div>
               <div class="fg"><label class="flabel">Buyer Name (optional)</label><input class="finput" id="pay-buyer" placeholder="e.g. Sarah Johnson"></div>
-              <button class="btn btn-green btn-full" style="padding:13px;margin-top:4px" onclick="createPayLink()">💳 Generate Stripe Payment Link</button>
+              <button class="btn btn-green btn-full" style="padding:13px;margin-top:4px" id="payLinkBtn" onclick="createPayLink()">💳 Create checkout link</button>
               <div id="payLinkResult" style="display:none;margin-top:14px">
                 <div style="background:var(--green-light);border:1.5px solid var(--green);border-radius:10px;padding:14px 16px">
-                  <div style="font-size:.72rem;font-weight:700;color:var(--green);margin-bottom:6px">✅ Payment Link Created!</div>
-                  <div style="font-size:.76rem;font-weight:600;color:var(--teal);word-break:break-all;margin-bottom:10px" id="payLinkUrl"></div>
+                  <div style="font-size:.72rem;font-weight:700;color:var(--green);margin-bottom:6px">✅ Checkout ready <span id="payLinkFor" style="font-weight:600;color:var(--ink2)"></span></div>
+                  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+                    <div id="payQr" style="background:#fff;padding:8px;border-radius:8px;line-height:0"></div>
+                    <div style="font-size:.7rem;color:var(--muted);max-width:220px">📷 <b>In person:</b> the buyer scans this with their phone camera and pays there. Or tap <b>Open checkout here</b> and hand them this device.</div>
+                  </div>
+                  <div style="font-size:.7rem;font-weight:600;color:var(--teal);word-break:break-all;margin-bottom:10px" id="payLinkUrl"></div>
                   <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn btn-green btn-sm" onclick="openPayHere()">🛒 Open checkout here</button>
                     <button class="btn btn-teal btn-sm" onclick="copyPayLink()">Copy Link</button>
                     <button class="btn btn-ghost btn-sm" onclick="smsPayLink()">📱 Text to Buyer</button>
                     <button class="btn btn-ghost btn-sm" onclick="emailPayLink()">📧 Email to Buyer</button>
@@ -2268,7 +2284,7 @@ tr:hover td{background:var(--bg)}
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px">
-          <button class="btn btn-green btn-full" onclick="createPayLinkForPiece()">💳 Create Payment Link</button>
+          <button class="btn btn-green btn-full" onclick="createPayLinkForPiece()">💳 Sell now — checkout link / QR</button>
           <button class="btn btn-ghost btn-full" id="pm-status-btn" onclick="togglePieceStatus()">Mark as Sold</button>
           <button class="btn btn-ghost btn-full" style="color:var(--coral);border-color:var(--coral)" onclick="deletePiece()">Remove Piece</button>
         </div>
@@ -2336,15 +2352,30 @@ async function authSignIn(email, password) {
   saveSession(data);
   return data;
 }
+// When the token expires: the stored expires_at, else the token's own "exp".
+function tokenExp(s) {
+  if (s && s.expires_at) return s.expires_at;
+  try { return JSON.parse(atob(String(s.access_token).split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp || 0; } catch(e) { return 0; }
+}
 async function authRefresh() {
+  // Another tab on this device may already have refreshed (each refresh token works once): use its session.
+  try {
+    const stored = JSON.parse(localStorage.getItem(AUTH_STORE) || 'null');
+    if (stored && stored.access_token && session && stored.access_token !== session.access_token && tokenExp(stored) - 90 > Math.floor(Date.now()/1000)) { session = stored; return stored; }
+    if (stored && stored.refresh_token && session) session.refresh_token = stored.refresh_token;
+  } catch(e) {}
   if (!session || !session.refresh_token) return null;
-  const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-    method: 'POST',
-    headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: session.refresh_token })
-  });
+  let r;
+  try {
+    r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: session.refresh_token })
+    });
+  } catch(e) { return null; } // offline: keep the session, try again later
   if (!r.ok) { saveSession(null); return null; }
   const data = await r.json();
+  if (!data.expires_at && data.expires_in) data.expires_at = Math.floor(Date.now()/1000) + Number(data.expires_in);
   saveSession(data);
   return data;
 }
@@ -2417,6 +2448,47 @@ const DB = {
     return await sb.insert(table, data);
   }
 };
+// ── DATA LAYER (rewritten 2026-11-11_2230 UTC) ──
+// Why: the sign-in token lasts an hour. On a tablet or phone left open in the
+// background the keep-alive timer pauses, the token lapses, and the old code
+// quietly fell back to the PUBLIC key. Supabase then ignores the change (no
+// error, 0 rows) — so the hub said "✅ saved" while nothing was saved, and the
+// next refresh brought the old price back. Layout, website text, donations and
+// deletes failed the same way. Now every write:
+//   1. refreshes the sign-in first when it's close to expiring,
+//   2. never runs with the public key (asks Cece to sign in again instead),
+//   3. retries once after refreshing if Supabase rejects the token,
+//   4. counts "0 rows changed" as a failure, not a success.
+/** A short, plain reason for a failed save. */
+function saveErr(e){ const m=String((e&&e.message)||e||''); if(/sign-in|sign in/i.test(m)) return 'your sign-in expired — sign in again and save once more.'; if(/Failed to fetch|NetworkError|network/i.test(m)) return 'no connection — check your Wi-Fi and try again.'; try{ const j=JSON.parse(m); return (j.message||j.error||m).slice(0,160); }catch(x){} return m.slice(0,160)||'unknown error'; }
+let _refreshing = null;
+async function freshSession() {
+  if (!session || !session.access_token) return false;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (tokenExp(session) - 90 > nowSec) return true;
+  if (!_refreshing) _refreshing = authRefresh().finally(() => { _refreshing = null; });
+  return !!(await _refreshing);
+}
+function needSignIn() {
+  const msg = 'Your sign-in expired, so this was NOT saved. Sign in again, then save once more.';
+  try { showToast('🔒 ' + msg, 't-error'); } catch(e) {}
+  try { promptReauth(); } catch(e) {}
+  const err = new Error(msg); err.reauth = true; return err;
+}
+// One authenticated request: fresh token, one retry on an expired/invalid token.
+async function sbWrite(url, init) {
+  if (!(await freshSession())) throw needSignIn();
+  const go = () => fetch(url, { ...init, headers: { ...(init.headers || {}), apikey: SUPABASE_KEY, Authorization: `Bearer ${session.access_token}` } });
+  let r = await go();
+  if (r.status === 401 || r.status === 403) {
+    const body = await r.clone().text().catch(() => '');
+    if (/jwt|token|expired|invalid/i.test(body) && session && session.refresh_token && (await authRefresh())) r = await go();
+    else if (r.status === 401) throw needSignIn();
+  }
+  if (r.status === 401) throw needSignIn();
+  if (!r.ok) throw new Error(await r.text());
+  return r;
+}
 const sb = {
   async query(table, options = {}) {
     if (!CONFIGURED) return [];
@@ -2426,6 +2498,7 @@ const sb = {
     if (options.order)   params.push(`order=${options.order}`);
     if (options.eq)      Object.entries(options.eq).forEach(([k,v]) => params.push(`${k}=eq.${encodeURIComponent(v)}`));
     if (params.length)   url += '?' + params.join('&');
+    await freshSession().catch(() => false);
     const r = await fetch(url, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}`, 'Content-Type': 'application/json' }
     });
@@ -2433,40 +2506,53 @@ const sb = {
     return r.json();
   },
   async insert(table, data) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    const r = await sbWrite(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: 'POST',
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
       body: JSON.stringify(data)
     });
-    if (!r.ok) throw new Error(await r.text());
     return r.json();
   },
   async update(table, id, data) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+    const r = await sbWrite(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
       method: 'PATCH',
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
       body: JSON.stringify(data)
     });
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
+    const rows = await r.json();
+    if (Array.isArray(rows) && rows.length === 0) throw new Error('Nothing was saved — the database didn\'t accept the change (sign in again and retry).');
+    return rows;
   },
   async delete(table, id) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+    const r = await sbWrite(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
       method: 'DELETE',
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}` }
+      headers: { Prefer: 'return=representation' }
     });
-    if (!r.ok) throw new Error(await r.text());
+    const rows = await r.json().catch(() => null);
+    if (Array.isArray(rows) && rows.length === 0) throw new Error('Nothing was deleted — it may already be gone, or your sign-in expired.');
   },
   async upsert(table, data, onConflict = 'id') {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=${onConflict}`, {
+    const r = await sbWrite(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=${onConflict}`, {
       method: 'POST',
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${authToken()}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' },
+      headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' },
       body: JSON.stringify(data)
     });
-    if (!r.ok) throw new Error(await r.text());
     return r.json();
   }
 };
+
+// The sign-in lapsed mid-session: show the sign-in screen over the hub (the
+// page and anything typed stays put underneath) and come back after signing in.
+function promptReauth() {
+  const scr = document.getElementById('authScreen'); if (!scr || scr.classList.contains('show')) return;
+  window._reauth = true;
+  const err = document.getElementById('authErr');
+  if (err) { err.textContent = 'Your sign-in expired. Sign in again to keep saving — your changes on screen are still there.'; err.classList.add('show'); }
+  scr.classList.add('show');
+  setTimeout(() => document.getElementById('authEmail')?.focus(), 60);
+}
+// Coming back to the tab (phones/tablets pause timers in the background): refresh the sign-in right away.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') freshSession().catch(() => {}); });
 
 // ── LOAD DATA ──
 async function loadAll() {
@@ -2594,6 +2680,7 @@ async function onAuthSubmit(e) {
     await authSignIn(document.getElementById('authEmail').value, document.getElementById('authPassword').value);
     document.getElementById('authPassword').value = '';
     document.getElementById('authScreen').classList.remove('show');
+    if (window._reauth) { window._reauth = false; err.classList.remove('show'); showToast('🔓 Signed in again — save your change once more.','t-success'); return; }
     document.getElementById('loadingScreen').classList.remove('hidden');
     await startHub();
   } catch(ex) {
@@ -3711,7 +3798,7 @@ async function applyAiOptions(){
     if(upd.price) document.getElementById('pm-e-price').value = upd.price;
     aiOptPlan=null; document.getElementById('pm-ai-preview').innerHTML=''; document.getElementById('pm-ai-ask').value='';
     renderCollection(collFilter); showToast('✨ Options & prices saved — live on your website.','t-success');
-  }catch(e){ showToast('Error saving the changes','t-error'); }
+  }catch(e) { if(!e.reauth) showToast('Not done: saving the changes — '+saveErr(e),'t-error'); }
 }
 
 async function savePieceVariations() {
@@ -3720,7 +3807,7 @@ async function savePieceVariations() {
     await sb.update('pieces', p.id, { variations: pmVariationsBuf });
     p.variations = pmVariationsBuf.slice();
     showToast('🎨 Variations saved — live on your website.','t-success');
-  } catch(e) { showToast('Error saving variations (add the "variations" column — see SQL).','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not done: saving variations (add the "variations" column — see SQL). — '+saveErr(e),'t-error'); }
 }
 
 // ═══════════════ PHOTO STUDIO — enhance a photo & make variations ═══════════════
@@ -4549,7 +4636,7 @@ async function savePayHandles(){
   const data={ venmo, zelle:document.getElementById('pay-zelle').value.trim(), zelle_name:document.getElementById('pay-zelle-name').value.trim(), sms:document.getElementById('pay-sms').checked };
   const st=document.getElementById('pay-handles-status');
   try{ await sb.upsert('gallery',{ id:'pay', data, updated_at:new Date().toISOString() },'id'); st.textContent='✅ Saved — live on your website checkout.'; showToast('📲 Payment options saved','t-success'); }
-  catch(e){ st.textContent='⚠️ Could not save — run the database setup SQL first.'; }
+  catch(e){ st.textContent='⚠️ Not saved: '+saveErr(e); }
 }
 // A Venmo/Zelle order: payment received. Full price → sold; deposit → reserved
 // (balance invoiced later from the order, same as a card deposit).
@@ -4566,7 +4653,7 @@ async function markOrderPaid(id){
     renderOrdersTable();
     addActivity(`💵 ${o.source==='venmo'?'Venmo':o.source==='zelle'?'Zelle':'Payment'} received: <strong>${o.piece_title}</strong>${o.price?' · $'+o.price:''}`);
     showToast(isDep?'💵 Deposit marked paid — piece reserved':'💵 Marked paid — piece sold','t-success');
-  }catch(e){ showToast('Error updating the order','t-error'); }
+  }catch(e) { if(!e.reauth) showToast('Not done: updating the order — '+saveErr(e),'t-error'); }
 }
 
 // ── STRIPE CATALOG SYNC (added 2026-10-21_2120 UTC) ──
@@ -4828,7 +4915,7 @@ async function saveSiteContent(){
     seSaved = data;
     st.textContent = '✅ Published — refresh your website to see it.';
     showToast('✏️ Website updated','t-success'); addActivity('✏️ Updated website text & photos');
-  } catch(e) { st.textContent = '⚠️ Could not publish — check your connection and try again.'; }
+  } catch(e) { st.textContent = '⚠️ Not published: ' + saveErr(e); }
   btn.disabled = false;
   renderSiteEditor();
 }
@@ -4899,7 +4986,7 @@ async function saveSupport(){
   btn.disabled=true; st.textContent='Saving…';
   try { await sb.upsert('gallery',{ id:'support', data, updated_at:new Date().toISOString() },'id');
     st.textContent='✅ Saved — live on your website.'; showToast('💜 Support options saved','t-success'); }
-  catch(e){ st.textContent='⚠️ Could not save — check your connection and try again.'; }
+  catch(e){ st.textContent='⚠️ Not saved: '+saveErr(e); }
   btn.disabled=false;
 }
 
@@ -4914,7 +5001,7 @@ function saveShopLayout(){
   clearTimeout(_laySaveT);
   _laySaveT=setTimeout(async()=>{
     try{ await sb.upsert('gallery',{ id:'shop_layout', data:shopLayout, updated_at:new Date().toISOString() },'id'); st.textContent='✅ Saved — live on your website shop.'; }
-    catch(e){ st.textContent='⚠️ Could not save — check your connection and try again.'; }
+    catch(e){ st.textContent='⚠️ Not saved: '+saveErr(e); }
   },600);
 }
 
@@ -4975,7 +5062,7 @@ async function savePieceEdits() {
     renderRentalStats(); renderRentalPieces(); populateRentPieceSels();
     showToast('✅ Piece updated — live on your website.','t-success');
     closePieceModal();
-  } catch(e) { showToast('Error saving changes','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not saved: '+saveErr(e),'t-error'); }
 }
 
 // The Curator (AI) reads THIS piece's photo and suggests title, category,
@@ -5028,7 +5115,7 @@ async function togglePieceStatus() {
     if (newStatus==='sold') addActivity(`🎉 Sold: <strong>${p.title}</strong>${p.price?' · $'+p.price:''}`);
     refreshDash(); closePieceModal(); renderCollection();
     showToast(newStatus==='sold'?'🎉 Marked as sold!':'Marked as available.','t-success');
-  } catch(e) { showToast('Error updating piece','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not saved: '+saveErr(e),'t-error'); }
 }
 
 async function deletePiece() {
@@ -5038,7 +5125,7 @@ async function deletePiece() {
     pieces = pieces.filter(p=>p.id!==currentPieceId);
     closePieceModal(); renderCollection(); refreshDash();
     showToast('Piece removed.','');
-  } catch(e) { showToast('Error removing piece','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not removed: '+saveErr(e),'t-error'); }
 }
 
 function createPayLinkForPiece() {
@@ -5046,9 +5133,10 @@ function createPayLinkForPiece() {
   closePieceModal();
   goPage('payments', document.querySelector('[onclick*=payments]'));
   setTimeout(() => {
-    document.getElementById('pay-price').value = p.price||'';
     document.getElementById('pay-piece-sel').value = p.id||'';
-  }, 100);
+    document.getElementById('pay-price').value = p.price||'';
+    createPayLink();
+  }, 120);
 }
 
 // ── PAYMENTS ──
@@ -5101,21 +5189,42 @@ function populatePayPieceSel() {
   sel.onchange = () => { const p=pieces.find(x=>x.id===sel.value); if(p) document.getElementById('pay-price').value=p.price||''; };
 }
 
-function createPayLink() {
-  const price = document.getElementById('pay-price').value.trim();
+// Real Stripe checkout for a piece (2026-11-11_2230 UTC; the old version showed a made-up buy.stripe.com
+// address that went nowhere). Same create-checkout function as the website's Buy Now: the price is read from
+// the piece in the database, the order lands in Orders, and the piece is marked sold when the buyer pays.
+async function createPayLink() {
   const buyer = document.getElementById('pay-buyer').value.trim();
   const pieceId = document.getElementById('pay-piece-sel').value;
   const piece = pieces.find(x=>x.id===pieceId);
-  if (!price) { showToast('Enter a price first.','t-error'); return; }
-  const fakeId = 'ctp_'+Date.now().toString(36);
-  const url = keys['stripe-key'] ? `https://buy.stripe.com/${fakeId}` : `https://cecethepiece.com/pay/${fakeId}`;
-  document.getElementById('payLinkUrl').textContent = url;
-  document.getElementById('payLinkResult').style.display = 'block';
-  window._pay = { url, buyer, price, piece };
-  addActivity(`💳 Payment link${piece?' for <strong>'+piece.title+'</strong>':''}${price?' · $'+price:''}${buyer?' → '+buyer:''}`);
-  if (!keys['stripe-key']) showToast('⚠️ Add your Stripe key in Connections for real payment links.','t-amber');
-  else showToast('💳 Payment link created!','t-success');
+  if (!piece) { showToast('Pick a piece first.','t-error'); return; }
+  if (piece.status === 'sold') { showToast('That piece is marked sold. Mark it available first.','t-error'); return; }
+  if (!(parseFloat(piece.price) > 0)) { showToast('That piece has no price. Add one in Collection first.','t-error'); return; }
+  const btn = document.getElementById('payLinkBtn'); const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Creating checkout…'; }
+  try {
+    const r = await fetch(SUPABASE_URL + '/functions/v1/create-checkout', {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ piece_id: piece.id, customer_name: buyer || undefined, source: 'hub' })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.url) throw new Error(j.error || ('checkout HTTP ' + r.status));
+    const url = j.url;
+    document.getElementById('payLinkUrl').textContent = url;
+    document.getElementById('payLinkFor').textContent = '· ' + piece.title + ' · $' + piece.price;
+    const qr = document.getElementById('payQr'); qr.innerHTML = '';
+    if (window.QRCode) new QRCode(qr, { text: url, width: 150, height: 150, correctLevel: QRCode.CorrectLevel.M });
+    else qr.innerHTML = '<span style="font-size:.66rem;color:var(--muted)">QR code unavailable — use the link.</span>';
+    document.getElementById('payLinkResult').style.display = 'block';
+    window._pay = { url, buyer, price: piece.price, piece };
+    addActivity('💳 Checkout link for <strong>' + piece.title + '</strong> · $' + piece.price + (buyer ? ' → ' + buyer : ''));
+    showToast('💳 Checkout ready — text it, email it, or let them scan the QR.','t-success');
+  } catch(e) {
+    showToast("Couldn't create the checkout: " + saveErr(e), 't-error');
+  } finally { if (btn) { btn.disabled = false; btn.innerHTML = label; } }
 }
+// In person: open the checkout on this device and hand it to the buyer.
+function openPayHere() { const u = (window._pay||{}).url; if (u) window.open(u, '_blank', 'noopener'); }
 
 function copyPayLink() { navigator.clipboard.writeText(document.getElementById('payLinkUrl').textContent).then(()=>showToast('Payment link copied!','t-success')); }
 
@@ -5228,7 +5337,7 @@ async function deleteContact(id){
     const cc=document.getElementById('contactCountCap'); if(cc) cc.textContent=contacts.length;
     addActivity(`🗑 Deleted contact <strong>${c.name||c.email||''}</strong>`);
     showToast('Contact deleted.','');
-  }catch(e){ showToast('Error deleting contact','t-error'); }
+  }catch(e){ if(!e.reauth) showToast('Not deleted: '+saveErr(e),'t-error'); }
 }
 // Backfill CRM from every website order (once per unique buyer email).
 let _crmSyncing=false;
@@ -5279,7 +5388,7 @@ async function logCommunication(){
     renderCRM(crmFilter);
     addActivity(`✉️ Logged communication with <strong>${c.name}</strong>`);
     showToast('Communication logged.','t-success');
-  }catch(e){ showToast('Error logging','t-error'); }
+  }catch(e) { if(!e.reauth) showToast('Not done: logging — '+saveErr(e),'t-error'); }
 }
 
 function renderCRM(filt='all') {
@@ -5323,7 +5432,7 @@ async function saveContact() {
     document.getElementById('ds-contacts').textContent = contacts.length;
     const cc = document.getElementById('contactCountCap'); if(cc) cc.textContent = contacts.length;
     showToast('✓ Contact saved to team database!','t-success');
-  } catch(e) { showToast('Error saving contact','t-error'); console.error(e); }
+  } catch(e) { if(!e.reauth) showToast('Not done: saving contact — '+saveErr(e),'t-error'); console.error(e); }
 }
 
 async function logContactOut(id) {
@@ -5334,7 +5443,7 @@ async function logContactOut(id) {
     c.last_out = today; renderCRM(crmFilter);
     addActivity(`✉️ Outreach to <strong>${c.name}</strong>`);
     showToast('Outreach logged!','t-success');
-  } catch(e) { showToast('Error logging outreach','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not done: logging outreach — '+saveErr(e),'t-error'); }
 }
 
 // ── CONNECTIONS / KEYS ──
@@ -6313,7 +6422,7 @@ function renderOrdersTable() {
         <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openOrderModal('${o.id}')">View</button>
         ${o.status==='awaiting-payment'?`<button class="btn btn-green btn-xs" style="margin-left:4px" onclick="event.stopPropagation();markOrderPaid('${o.id}')">💵 Mark paid</button>`:`<button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="event.stopPropagation();confirmOrder('${o.id}')">✓ Confirm</button>`}
         <button class="btn btn-amber btn-xs" style="margin-left:4px" onclick="event.stopPropagation();markPieceSoldFromOrder('${o.id}')">Mark Sold</button>
-        <button class="btn btn-ghost btn-xs" style="margin-left:4px;color:var(--coral)" title="Delete" onclick="event.stopPropagation();deleteOrder('${o.id}')">🗑</button>
+        <button class="btn btn-ghost btn-xs" style="margin-left:4px;color:var(--coral)" title="Delete this ${o.type==='inquiry'||!o.type?'inquiry':'order'}" onclick="event.stopPropagation();deleteOrder('${o.id}')">🗑 Delete</button>
       </td>
     </tr>`;
   }).join('');
@@ -6331,7 +6440,7 @@ async function deleteOrder(id) {
     if (currentOrderId===id) closeOrderModal();
     renderOrders();
     showToast(what==='inquiry'?'Inquiry deleted.':'Order deleted.','');
-  } catch(e) { showToast('Error deleting '+what,'t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not deleted: '+saveErr(e),'t-error'); }
 }
 
 // ── ORDER / BUYER DETAILS ──
@@ -6464,7 +6573,7 @@ async function confirmOrder(id) {
     renderOrdersTable();
     addActivity(`✅ Order confirmed: <strong>${o.piece_title}</strong>`);
     showToast('Order confirmed!','t-success');
-  } catch(e) { showToast('Error confirming order','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not done: confirming order — '+saveErr(e),'t-error'); }
 }
 
 async function markPieceSoldFromOrder(id) {
@@ -6480,7 +6589,7 @@ async function markPieceSoldFromOrder(id) {
     renderOrdersTable();
     addActivity(`🎉 Piece sold via website: <strong>${o.piece_title}</strong>${o.price?' · $'+o.price:''}`);
     showToast('🎉 Marked as sold!','t-success');
-  } catch(e) { showToast('Error updating','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not done: updating — '+saveErr(e),'t-error'); }
 }
 
 async function confirmRentalFromOrders(id) {
@@ -6496,7 +6605,7 @@ async function confirmRentalFromOrders(id) {
       const body = encodeURIComponent(`Hi ${b.renter_name},\n\nYour rental is confirmed!\n\nPiece: ${pieces.find(p=>p.id===b.piece_id)?.title||'Your piece'}\nEvent: ${b.event_type}\nDates: ${b.start_date} → ${b.end_date}\n\nWith gratitude,\nCece`);
       window.open(`mailto:${b.renter_email}?subject=${sub}&body=${body}`);
     }
-  } catch(e) { showToast('Error confirming rental','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not done: confirming rental — '+saveErr(e),'t-error'); }
 }
 
 // Order polling — runs after startPolling is called from loadAll()
@@ -6760,7 +6869,7 @@ async function saveRentalBooking() {
     showToast('✅ Booking saved!','t-success');
     // Send confirmation email
     if (booking.renter_email) sendRentalConfirmEmail(booking);
-  } catch(e) { showToast('Error saving booking','t-error'); console.error(e); }
+  } catch(e) { if(!e.reauth) showToast('Not done: saving booking — '+saveErr(e),'t-error'); console.error(e); }
 }
 
 // ── STATUS UPDATES ──
@@ -6777,7 +6886,7 @@ async function markRentalOut(id) {
     renderRentals();
     showToast('📦 Piece marked as out with renter.','t-success');
     addActivity(`📦 Rental out: <strong>${b.renter_name}</strong> — ${b.event_type}`);
-  } catch(e) { showToast('Error updating status','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not done: updating status — '+saveErr(e),'t-error'); }
 }
 
 async function markRentalReturned(id) {
@@ -6793,7 +6902,7 @@ async function markRentalReturned(id) {
     renderRentals();
     showToast('✅ Piece returned — marked available!','t-success');
     addActivity(`✅ Rental returned: <strong>${b.renter_name}</strong>`);
-  } catch(e) { showToast('Error updating status','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not done: updating status — '+saveErr(e),'t-error'); }
 }
 
 async function confirmRentalBooking(id) {
@@ -6804,7 +6913,7 @@ async function confirmRentalBooking(id) {
     renderRentals();
     showToast('✅ Booking confirmed!','t-success');
     if (b.renter_email) sendRentalConfirmEmail(b);
-  } catch(e) { showToast('Error confirming booking','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not done: confirming booking — '+saveErr(e),'t-error'); }
 }
 
 async function deleteRentalBooking(id) {
@@ -6814,7 +6923,7 @@ async function deleteRentalBooking(id) {
     rentalBookings = rentalBookings.filter(b => b.id !== id);
     renderRentals();
     showToast('Booking removed.','');
-  } catch(e) { showToast('Error removing booking','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Not done: removing booking — '+saveErr(e),'t-error'); }
 }
 
 // ── RENTAL PAYMENT LINKS ──
@@ -7620,14 +7729,14 @@ async function impWebsiteOrders() {
   try {
     const rows = await sb.query('orders', { select: '*', order: 'created_at.desc' });
     showImpPreview((rows||[]).map(r => ({ name: r.buyer_name || r.customer_name || r.name || 'Unknown', email: r.buyer_email || r.customer_email || r.email || '', phone: r.buyer_phone || r.phone || '', notes: 'Purchase inquiry: ' + (r.piece_title || r.piece_id || ''), source: 'Website — purchase inquiry' })).filter(r => r.name && r.name !== 'Unknown'), 'website');
-  } catch(e) { showToast('Error loading orders.','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Couldn\'t load orders — '+saveErr(e),'t-error'); }
 }
 
 async function impWebsiteRentals() {
   try {
     const rows = await sb.query('rental_bookings', { select: '*', order: 'created_at.desc' });
     showImpPreview((rows||[]).map(r => ({ name: r.renter_name || 'Unknown', email: r.renter_email || '', phone: r.renter_phone || '', notes: 'Rental inquiry: ' + (r.event_type || '') + (r.start_date ? ' on ' + r.start_date : ''), source: 'Website — rental booking' })).filter(r => r.name && r.name !== 'Unknown'), 'website');
-  } catch(e) { showToast('Error loading rentals.','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Couldn\'t load rentals — '+saveErr(e),'t-error'); }
 }
 
 async function impWebsiteAll() {
@@ -7641,7 +7750,7 @@ async function impWebsiteAll() {
       ...(rentals||[]).map(r => ({ name: r.renter_name || 'Unknown', email: r.renter_email || '', phone: r.renter_phone || '', notes: 'Rental: ' + (r.event_type || ''), source: 'Website — rental booking' }))
     ].filter(r => r.name && r.name !== 'Unknown');
     showImpPreview(combined, 'website');
-  } catch(e) { showToast('Error loading website contacts.','t-error'); }
+  } catch(e) { if(!e.reauth) showToast('Couldn\'t load website contacts — '+saveErr(e),'t-error'); }
 }
 
 function showImpPreview(rows, source) {
